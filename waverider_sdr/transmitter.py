@@ -209,9 +209,11 @@ class SDRTransmitter:
         # Generate complex exponential (tone)
         samples = np.exp(2j * np.pi * frequency_offset * t)
         
-        # Apply amplitude to match max power
-        amplitude = np.sqrt(self.config.max_tx_power)
-        samples = samples * amplitude * 0.5  # Scale to 50% for safety
+        # Scale samples to appropriate power level
+        # For IQ samples, power is mean(|samples|^2). A unit-power complex exponential has power=1
+        # Scale to 50% of max power for safety margin
+        target_amplitude = np.sqrt(0.5 * self.config.max_tx_power)
+        samples = samples * target_amplitude
         
         logger.info(
             f"Generated tone: {frequency_offset/1e3:.2f} kHz offset, "
