@@ -1,0 +1,275 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    color: #333;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    color: white;
+    padding: 30px 0;
+    margin-bottom: 30px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+}
+
+header h1 {
+    font-size: 3em;
+    margin-bottom: 10px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.tagline {
+    font-size: 1.2em;
+    opacity: 0.9;
+}
+
+.main-content {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+@media (max-width: 1200px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+section {
+    background: white;
+    border-radius: 10px;
+    padding: 25px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+    color: #1e3c72;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #2a5298;
+}
+
+h3 {
+    color: #2a5298;
+    margin: 15px 0 10px 0;
+}
+
+/* Control Panel Styles */
+.control-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.band-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.band-selector label {
+    font-weight: bold;
+    color: #1e3c72;
+}
+
+.band-selector select {
+    padding: 10px;
+    font-size: 1em;
+    border: 2px solid #2a5298;
+    border-radius: 5px;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.3s;
+}
+
+.band-selector select:hover {
+    border-color: #1e3c72;
+}
+
+.frequency-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.frequency-display {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.frequency-display label {
+    font-weight: bold;
+    color: #1e3c72;
+}
+
+.freq-value {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f0f4f8;
+    padding: 15px;
+    border-radius: 5px;
+    border: 2px solid #2a5298;
+}
+
+#freq-input {
+    flex: 1;
+    font-size: 1.5em;
+    font-weight: bold;
+    padding: 5px 10px;
+    border: none;
+    background: transparent;
+    color: #1e3c72;
+}
+
+#freq-unit {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #2a5298;
+}
+
+.tuning-controls {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.tune-btn {
+    padding: 12px 8px;
+    font-size: 0.9em;
+    background: #2a5298;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-weight: 600;
+}
+
+.tune-btn:hover {
+    background: #1e3c72;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.tune-btn:active {
+    transform: translateY(0);
+}
+
+.band-info {
+    background: #f0f4f8;
+    padding: 15px;
+    border-radius: 5px;
+    border-left: 4px solid #2a5298;
+}
+
+#band-info-content p {
+    margin: 8px 0;
+    line-height: 1.6;
+}
+
+#band-info-content strong {
+    color: #1e3c72;
+}
+
+/* Band Plan Styles */
+.band-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.band-plan-controls {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-start;
+}
+
+.band-plan-controls button {
+    padding: 10px 20px;
+    background: #2a5298;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-weight: 600;
+}
+
+.band-plan-controls button:hover {
+    background: #1e3c72;
+    transform: translateY(-2px);
+}
+
+.canvas-container {
+    border: 2px solid #2a5298;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #f9f9f9;
+}
+
+#band-plan-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    cursor: crosshair;
+}
+
+.allocation-details {
+    background: #f0f4f8;
+    padding: 15px;
+    border-radius: 5px;
+    border-left: 4px solid #2a5298;
+    min-height: 100px;
+}
+
+#allocation-content {
+    line-height: 1.6;
+}
+
+#allocation-content p {
+    margin: 5px 0;
+}
+
+#allocation-content strong {
+    color: #1e3c72;
+}
+
+footer {
+    text-align: center;
+    color: white;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    header h1 {
+        font-size: 2em;
+    }
+    
+    .tuning-controls {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    #band-plan-canvas {
+        width: 100%;
+    }
+}

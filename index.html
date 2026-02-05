@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WaveRiderSDR - Software Defined Radio</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌊 WaveRiderSDR</h1>
+            <p class="tagline">The only SDR with full features and rolling updates</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Frequency Band Selection Section -->
+            <section class="control-panel">
+                <h2>Frequency Band Selection</h2>
+                
+                <div class="band-selector">
+                    <label for="band-select">Select Band:</label>
+                    <select id="band-select">
+                        <option value="hf">HF (3-30 MHz)</option>
+                        <option value="vhf" selected>VHF (30-300 MHz)</option>
+                        <option value="uhf">UHF (300-3000 MHz)</option>
+                        <option value="shf">SHF (3-30 GHz)</option>
+                    </select>
+                </div>
+
+                <div class="frequency-controls">
+                    <div class="frequency-display">
+                        <label>Current Frequency:</label>
+                        <div class="freq-value">
+                            <input type="number" id="freq-input" value="144.000" step="0.001" min="0.001" max="30000">
+                            <span id="freq-unit">MHz</span>
+                        </div>
+                    </div>
+
+                    <div class="tuning-controls">
+                        <button class="tune-btn" data-step="-10">-10 MHz</button>
+                        <button class="tune-btn" data-step="-1">-1 MHz</button>
+                        <button class="tune-btn" data-step="-0.1">-100 kHz</button>
+                        <button class="tune-btn" data-step="0.1">+100 kHz</button>
+                        <button class="tune-btn" data-step="1">+1 MHz</button>
+                        <button class="tune-btn" data-step="10">+10 MHz</button>
+                    </div>
+                </div>
+
+                <div class="band-info">
+                    <h3>Band Information</h3>
+                    <div id="band-info-content">
+                        <p><strong>Band:</strong> <span id="info-band">VHF</span></p>
+                        <p><strong>Range:</strong> <span id="info-range">30-300 MHz</span></p>
+                        <p><strong>Common Uses:</strong> <span id="info-uses">FM Radio, TV, Amateur Radio</span></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Band Plan Display Section -->
+            <section class="band-plan">
+                <h2>Band Plan</h2>
+                <div class="band-plan-controls">
+                    <button id="zoom-in">Zoom In</button>
+                    <button id="zoom-out">Zoom Out</button>
+                    <button id="reset-view">Reset View</button>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="band-plan-canvas" width="1200" height="600"></canvas>
+                </div>
+                <div id="allocation-details" class="allocation-details">
+                    <h3>Allocation Details</h3>
+                    <div id="allocation-content">
+                        <p>Hover over or click on a frequency range to see details</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <footer>
+            <p>&copy; 2026 WaveRiderSDR - Open Source SDR Software</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
