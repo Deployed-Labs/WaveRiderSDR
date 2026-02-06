@@ -1,6 +1,28 @@
 # WaveRiderSDR
 The only SDR with full features, rolling updates, and **universal cross-platform compatibility**.
 
+## 🚀 Quick Start
+
+### One Command - Any Platform
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run (automatically detects your platform)
+python run.py
+```
+
+That's it! WaveRider SDR will:
+- ✅ Detect if you're on desktop or need web version
+- ✅ Check for required dependencies  
+- ✅ Launch the appropriate interface
+- ✅ Work on Windows, macOS, Linux, iOS, and Android
+
+**For mobile devices**: Start the web version on your computer, then access from your phone's browser at `http://<your-ip>:5000`
+
+📖 **Detailed platform-specific instructions**: See [PLATFORM_GUIDE.md](PLATFORM_GUIDE.md)
+
 ## 🌍 Cross-Platform Support
 
 WaveRider SDR works on **every type of computer and phone**:
