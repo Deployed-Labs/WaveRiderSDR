@@ -1,6 +1,15 @@
 numpy>=1.21.0
 matplotlib>=3.4.0
-PyQt5>=5.15.0
 scipy>=1.7.0
-pyrtlsdr>=0.2.9
 pyserial>=3.5
+
+# Desktop GUI dependencies (optional - for desktop version only)
+PyQt5>=5.15.0
+
+# Web interface dependencies (optional - for web/mobile version)
+flask>=2.3.0
+flask-socketio>=5.3.0
+python-socketio>=5.9.0
+
+# SDR hardware support (optional)
+pyrtlsdr>=0.2.9
