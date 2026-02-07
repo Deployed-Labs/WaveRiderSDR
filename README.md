@@ -3,6 +3,12 @@ The only SDR with full features, rolling updates, and **universal cross-platform
 
 ## 🎯 Features
 
+- **Real SDR Hardware Support**: Connect to RTL-SDR and other SDR devices for real-time signal acquisition
+- **Automatic Device Detection**: Scans and displays available SDR devices
+- **Device Selection**: Choose which SDR device to use from detected devices
+- **Start/Stop Controls**: Start and stop signal acquisition with a single button
+- **Real-Time Display**: Live waterfall and waveform visualization from SDR hardware
+- **Graceful Fallback**: Works with simulated signals when no SDR hardware is present
 - **Universal Cross-Platform**: Works on Windows, macOS, Linux, iOS, Android, and any device with a web browser
 - **Automatic Platform Detection**: Intelligently chooses the best interface for your device
 - **Responsive Design**: Adapts to any screen size - from phones to desktop monitors
@@ -32,6 +38,26 @@ That's it! WaveRider SDR will:
 - ✅ Check for required dependencies  
 - ✅ Launch the appropriate interface
 - ✅ Work on Windows, macOS, Linux, iOS, and Android
+- ✅ Automatically detect connected SDR devices
+- ✅ Fall back to simulated signals if no SDR hardware present
+
+### Using with Real SDR Hardware
+
+To use real SDR devices (like RTL-SDR):
+
+```bash
+# Install SDR hardware support
+pip install pyrtlsdr
+
+# Run the application
+python run.py
+
+# The application will:
+# 1. Automatically scan for connected SDR devices
+# 2. Display detected devices in the UI
+# 3. Allow you to select which device to use
+# 4. Click "Start" to begin real-time signal acquisition
+```
 
 **For mobile devices**: Start the web version on your computer, then access from your phone's browser at `http://<your-ip>:5000`
 
@@ -57,18 +83,28 @@ WaveRider SDR provides **two versions**:
 
 The universal launcher (`run.py`) automatically detects your platform and starts the appropriate version!
 
-## Features
+## 📡 SDR Hardware Support
 
-- **Universal Cross-Platform**: Works on Windows, macOS, Linux, iOS, Android, and any device with a web browser
-- **Automatic Platform Detection**: Intelligently chooses the best interface for your device
-- **Responsive Design**: Adapts to any screen size - from phones to desktop monitors
-- **Waterfall Display (Spectrogram)**: Real-time visualization of frequency spectrum over time
-- **Interactive Controls**: Adjust center frequency, sample rate, FFT size, and update rate
-- **Signal Processing**: FFT-based frequency analysis with windowing
-- **Flexible Display**: Colormap-based visualization for easy signal identification
-- **Mobile-Optimized**: Touch-friendly controls and optimized layouts for phones and tablets
-- **Meshtastic Device Detection**: Automatic detection of Meshtastic devices via USB
-- **LoRa Communication**: Enables LoRa communication when Meshtastic device is detected
+WaveRider SDR supports real SDR hardware for live signal acquisition:
+
+### Supported Devices
+- **RTL-SDR** (RTL2832U-based dongles)
+- More devices coming soon (HackRF, Airspy, etc.)
+
+### Features
+- **Automatic Device Detection**: Scans for connected SDR devices on startup
+- **Device Selection**: Choose which SDR to use if multiple devices are connected
+- **Real-Time Acquisition**: Live signal processing and display
+- **Start/Stop Control**: Start and stop signal acquisition as needed
+- **Graceful Fallback**: Automatically uses simulated signals if no hardware is detected
+
+### Setup
+1. Install SDR driver for your device (e.g., RTL-SDR driver)
+2. Install Python SDR library: `pip install pyrtlsdr`
+3. Connect your SDR device
+4. Run WaveRider SDR - it will automatically detect your device
+5. Select your device from the dropdown menu
+6. Click "Start" to begin signal acquisition
 
 ## Installation
 

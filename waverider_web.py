@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 # Import common utilities
-from waverider_common import MeshtasticDetector, SignalGenerator, compute_fft_db
+from waverider_common import MeshtasticDetector, SignalGenerator, compute_fft_db, SDRDevice, RTLSDR_AVAILABLE
 
 
 class WaveRiderWebApp:
@@ -43,6 +43,8 @@ class WaveRiderWebApp:
         # Initialize components
         self.signal_source = SignalGenerator(self.sample_rate, self.center_freq)
         self.meshtastic_detector = MeshtasticDetector()
+        self.sdr_device = SDRDevice()
+        self.use_real_sdr = False
         self.waterfall_data = np.zeros((self.waterfall_height, self.fft_size))
         
         # Setup routes
@@ -61,6 +63,7 @@ class WaveRiderWebApp:
         def get_status():
             """Get current status"""
             devices = self.meshtastic_detector.detect_devices()
+            sdr_devices = self.sdr_device.detect_devices() if RTLSDR_AVAILABLE else []
             return jsonify({
                 'running': self.running,
                 'sample_rate': self.sample_rate,
@@ -68,7 +71,11 @@ class WaveRiderWebApp:
                 'fft_size': self.fft_size,
                 'meshtastic_detected': len(devices) > 0,
                 'devices': [{'device': d.device, 'description': d.description} 
-                           for d in devices] if devices else []
+                           for d in devices] if devices else [],
+                'sdr_devices': sdr_devices,
+                'sdr_connected': self.sdr_device.is_connected,
+                'use_real_sdr': self.use_real_sdr,
+                'rtlsdr_available': RTLSDR_AVAILABLE
             })
         
         @self.app.route('/api/waterfall_image')
@@ -107,6 +114,11 @@ class WaveRiderWebApp:
             freq = float(data.get('frequency', 100))
             self.center_freq = freq * 1e6
             self.signal_source.center_freq = self.center_freq
+            
+            # Update SDR device if connected
+            if self.use_real_sdr and self.sdr_device.is_connected:
+                self.sdr_device.set_center_freq(self.center_freq)
+            
             emit('status', {'message': f'Frequency set to {freq} MHz'})
             
         @self.socketio.on('set_sample_rate')
@@ -120,6 +132,11 @@ class WaveRiderWebApp:
             }
             self.sample_rate = rate_map.get(rate_str, 2.4e6)
             self.signal_source.sample_rate = self.sample_rate
+            
+            # Update SDR device if connected
+            if self.use_real_sdr and self.sdr_device.is_connected:
+                self.sdr_device.set_sample_rate(self.sample_rate)
+            
             emit('status', {'message': f'Sample rate set to {rate_str}'})
             
         @self.socketio.on('set_fft_size')
@@ -129,13 +146,61 @@ class WaveRiderWebApp:
             self.fft_size = size
             self.waterfall_data = np.zeros((self.waterfall_height, self.fft_size))
             emit('status', {'message': f'FFT size set to {size}'})
+        
+        @self.socketio.on('scan_sdr_devices')
+        def handle_scan_sdr_devices():
+            """Scan for SDR devices"""
+            if not RTLSDR_AVAILABLE:
+                emit('sdr_devices', {
+                    'devices': [],
+                    'error': 'RTL-SDR library not installed. Install with: pip install pyrtlsdr'
+                })
+                return
+            
+            devices = self.sdr_device.detect_devices()
+            emit('sdr_devices', {'devices': devices, 'error': None})
+        
+        @self.socketio.on('connect_sdr_device')
+        def handle_connect_sdr_device(data):
+            """Connect to an SDR device"""
+            device_index = data.get('device_index', 0)
+            device_type = data.get('device_type', 'RTL-SDR')
+            
+            # Disconnect from any previous device
+            if self.sdr_device.is_connected:
+                self.sdr_device.disconnect()
+            
+            # Connect to the new device
+            if self.sdr_device.connect(device_index, device_type):
+                self.use_real_sdr = True
+                self.sdr_device.set_sample_rate(self.sample_rate)
+                self.sdr_device.set_center_freq(self.center_freq)
+                emit('status', {'message': f'Connected to {device_type}'})
+            else:
+                self.use_real_sdr = False
+                emit('status', {'message': f'Failed to connect to {device_type}'})
+        
+        @self.socketio.on('disconnect_sdr_device')
+        def handle_disconnect_sdr_device():
+            """Disconnect from SDR device"""
+            if self.sdr_device.is_connected:
+                self.sdr_device.disconnect()
+            self.use_real_sdr = False
+            emit('status', {'message': 'SDR device disconnected'})
     
     def update_loop(self):
         """Main update loop for signal processing"""
         while self.running:
             try:
-                # Generate samples
-                samples = self.signal_source.generate_samples(self.fft_size)
+                # Get samples from real SDR or simulated source
+                if self.use_real_sdr and self.sdr_device.is_connected:
+                    samples = self.sdr_device.read_samples(self.fft_size)
+                    if samples is None:
+                        # Error reading from SDR, fall back to simulated
+                        samples = self.signal_source.generate_samples(self.fft_size)
+                else:
+                    # Generate simulated samples
+                    samples = self.signal_source.generate_samples(self.fft_size)
                 
                 # Compute FFT and convert to dB
                 fft_db = compute_fft_db(samples, self.fft_size)
