@@ -1,0 +1,25 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=WaveRider SDR
+GenericName=Software Defined Radio
+Comment=Universal Cross-Platform SDR Application with Desktop and Web Interfaces
+Icon=radio
+Exec=INSTALL_DIR_PLACEHOLDER/run.py
+Path=INSTALL_DIR_PLACEHOLDER
+Terminal=false
+Categories=HamRadio;AudioVideo;Audio;Network;
+Keywords=SDR;Radio;HAM;RTL-SDR;HackRF;Amateur;Spectrum;Waterfall;
+StartupNotify=true
+MimeType=application/x-waverider-sdr;
+
+# Actions for different launch modes
+Actions=Web;Desktop;
+
+[Desktop Action Web]
+Name=Launch Web Interface
+Exec=INSTALL_DIR_PLACEHOLDER/run.py --web
+
+[Desktop Action Desktop]
+Name=Launch Desktop GUI
+Exec=INSTALL_DIR_PLACEHOLDER/run.py --desktop
