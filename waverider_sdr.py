@@ -7,7 +7,7 @@ import sys
 import numpy as np
 
 # Import common utilities
-from waverider_common import MeshtasticDetector, LoRaCommunication, SignalGenerator, compute_fft_db
+from waverider_common import MeshtasticDetector, LoRaCommunication, SignalGenerator, compute_fft_db, SDRDevice, RTLSDR_AVAILABLE
 
 # Check for PyQt5 availability
 try:
@@ -98,7 +98,11 @@ if PYQT5_AVAILABLE:
             self.setWindowTitle('WaveRiderSDR - Waterfall Visualization')
             self.setGeometry(100, 100, 1000, 700)
             
-            # Initialize signal source (using simulated data for now)
+            # Initialize SDR device interface
+            self.sdr_device = SDRDevice()
+            self.use_real_sdr = False  # Flag to indicate if using real SDR or simulated
+            
+            # Initialize signal source (for fallback when no SDR present)
             self.sample_rate = 2.4e6  # 2.4 MHz
             self.center_freq = 100e6  # 100 MHz
             self.signal_source = SignalGenerator(self.sample_rate, self.center_freq)
@@ -114,18 +118,19 @@ if PYQT5_AVAILABLE:
             # Setup UI
             self.setup_ui()
             
-            # Setup update timer
+            # Setup update timer (initially stopped)
             self.timer = QTimer()
             self.timer.timeout.connect(self.update_display)
-            self.timer.start(self.update_interval)
+            self.is_running = False  # Track whether acquisition is running
             
             # Setup device detection timer (check every 5 seconds)
             self.device_check_timer = QTimer()
             self.device_check_timer.timeout.connect(self.check_meshtastic_devices)
             self.device_check_timer.start(5000)  # 5 seconds
             
-            # Perform initial device check
+            # Perform initial device checks
             self.check_meshtastic_devices()
+            self.scan_sdr_devices()
             
         def setup_ui(self):
             """Setup the user interface"""
@@ -188,11 +193,33 @@ if PYQT5_AVAILABLE:
             controls_layout.addLayout(rate_layout)
             
             # Start/Stop button
-            self.start_stop_btn = QPushButton('Stop')
+            self.start_stop_btn = QPushButton('Start')
             self.start_stop_btn.clicked.connect(self.toggle_acquisition)
             controls_layout.addWidget(self.start_stop_btn)
             
             main_layout.addLayout(controls_layout)
+            
+            # SDR device selection panel
+            sdr_layout = QHBoxLayout()
+            sdr_label = QLabel('SDR Device:')
+            self.sdr_combo = QComboBox()
+            self.sdr_combo.addItem('No Device Detected')
+            self.sdr_combo.currentIndexChanged.connect(self.on_sdr_device_changed)
+            sdr_layout.addWidget(sdr_label)
+            sdr_layout.addWidget(self.sdr_combo)
+            
+            # Scan button
+            self.scan_btn = QPushButton('Scan for Devices')
+            self.scan_btn.clicked.connect(self.scan_sdr_devices)
+            sdr_layout.addWidget(self.scan_btn)
+            
+            # SDR status label
+            self.sdr_status_label = QLabel('No SDR connected')
+            self.sdr_status_label.setStyleSheet("color: orange;")
+            sdr_layout.addWidget(self.sdr_status_label)
+            sdr_layout.addStretch()
+            
+            main_layout.addLayout(sdr_layout)
             
             # Meshtastic device status panel
             meshtastic_layout = QHBoxLayout()
@@ -214,12 +241,20 @@ if PYQT5_AVAILABLE:
             main_layout.addLayout(meshtastic_layout)
             
             # Status bar
-            self.statusBar().showMessage('Running with simulated signal source')
+            self.statusBar().showMessage('Ready - Click Start to begin acquisition')
             
         def update_display(self):
             """Update the waterfall display with new data"""
-            # Get samples from signal source
-            samples = self.signal_source.generate_samples(self.fft_size)
+            if self.use_real_sdr and self.sdr_device.is_connected:
+                # Get samples from real SDR device
+                samples = self.sdr_device.read_samples(self.fft_size)
+                if samples is None:
+                    # Error reading from SDR, show message
+                    self.statusBar().showMessage('Error reading from SDR device')
+                    return
+            else:
+                # Get samples from simulated signal source (fallback)
+                samples = self.signal_source.generate_samples(self.fft_size)
             
             # Compute FFT and convert to dB
             fft_db = compute_fft_db(samples, self.fft_size)
@@ -231,6 +266,11 @@ if PYQT5_AVAILABLE:
             """Handle center frequency change"""
             self.center_freq = value * 1e6
             self.signal_source.center_freq = self.center_freq
+            
+            # Update SDR device if connected
+            if self.use_real_sdr and self.sdr_device.is_connected:
+                self.sdr_device.set_center_freq(self.center_freq)
+            
             self.waterfall.set_frequency_labels(self.center_freq, self.sample_rate)
             self.statusBar().showMessage(f'Center frequency: {value} MHz')
             
@@ -243,6 +283,11 @@ if PYQT5_AVAILABLE:
             }
             self.sample_rate = rate_map[value]
             self.signal_source.sample_rate = self.sample_rate
+            
+            # Update SDR device if connected
+            if self.use_real_sdr and self.sdr_device.is_connected:
+                self.sdr_device.set_sample_rate(self.sample_rate)
+            
             self.waterfall.set_frequency_labels(self.center_freq, self.sample_rate)
             self.statusBar().showMessage(f'Sample rate: {value}')
             
@@ -262,14 +307,26 @@ if PYQT5_AVAILABLE:
             
         def toggle_acquisition(self):
             """Toggle signal acquisition on/off"""
-            if self.timer.isActive():
+            if self.is_running:
+                # Stop acquisition
                 self.timer.stop()
+                self.is_running = False
                 self.start_stop_btn.setText('Start')
-                self.statusBar().showMessage('Stopped')
+                
+                if self.use_real_sdr:
+                    self.statusBar().showMessage('Stopped - SDR acquisition paused')
+                else:
+                    self.statusBar().showMessage('Stopped')
             else:
+                # Start acquisition
                 self.timer.start(self.update_interval)
+                self.is_running = True
                 self.start_stop_btn.setText('Stop')
-                self.statusBar().showMessage('Running')
+                
+                if self.use_real_sdr and self.sdr_device.is_connected:
+                    self.statusBar().showMessage(f'Running - Reading from {self.sdr_device.device_type}')
+                else:
+                    self.statusBar().showMessage('Running - Using simulated data (no SDR connected)')
         
         def check_meshtastic_devices(self):
             """Check for Meshtastic devices and enable LoRa if detected"""
@@ -304,6 +361,78 @@ if PYQT5_AVAILABLE:
                 self.meshtastic_status_label.setStyleSheet("color: orange;")
                 self.lora_status_label.setText('Disabled')
                 self.lora_status_label.setStyleSheet("color: gray;")
+        
+        def scan_sdr_devices(self):
+            """Scan for available SDR devices and populate the combo box"""
+            # Clear existing items
+            self.sdr_combo.clear()
+            
+            # Check if RTL-SDR library is available
+            if not RTLSDR_AVAILABLE:
+                self.sdr_combo.addItem('RTL-SDR library not installed')
+                self.sdr_status_label.setText('Install pyrtlsdr to use SDR devices')
+                self.sdr_status_label.setStyleSheet("color: red;")
+                self.statusBar().showMessage('RTL-SDR library not available. Install with: pip install pyrtlsdr')
+                return
+            
+            # Scan for devices
+            devices = self.sdr_device.detect_devices()
+            
+            if devices:
+                # Add detected devices to combo box
+                for dev in devices:
+                    display_text = f"{dev['type']} - {dev['description']}"
+                    self.sdr_combo.addItem(display_text, dev)
+                
+                # Update status
+                self.sdr_status_label.setText(f'Found {len(devices)} device(s)')
+                self.sdr_status_label.setStyleSheet("color: green;")
+                self.statusBar().showMessage(f'Found {len(devices)} SDR device(s). Select a device and click Start.')
+                
+                # Auto-select first device
+                self.on_sdr_device_changed(0)
+            else:
+                # No devices found
+                self.sdr_combo.addItem('No SDR devices found')
+                self.sdr_status_label.setText('No SDR devices detected')
+                self.sdr_status_label.setStyleSheet("color: orange;")
+                self.statusBar().showMessage('No SDR devices found. Using simulated data.')
+                self.use_real_sdr = False
+        
+        def on_sdr_device_changed(self, index):
+            """Handle SDR device selection change"""
+            device_data = self.sdr_combo.itemData(index)
+            
+            # Disconnect from any previous device
+            if self.sdr_device.is_connected:
+                self.sdr_device.disconnect()
+                self.use_real_sdr = False
+            
+            if device_data is None:
+                # No valid device selected
+                self.use_real_sdr = False
+                self.sdr_status_label.setText('No SDR connected')
+                self.sdr_status_label.setStyleSheet("color: orange;")
+                return
+            
+            # Try to connect to the selected device
+            device_index = device_data['index']
+            device_type = device_data['type']
+            
+            if self.sdr_device.connect(device_index, device_type):
+                self.use_real_sdr = True
+                self.sdr_status_label.setText(f'Connected to {device_type}')
+                self.sdr_status_label.setStyleSheet("color: green;")
+                self.statusBar().showMessage(f'Connected to {device_type}. Click Start to begin acquisition.')
+                
+                # Update device with current parameters
+                self.sdr_device.set_sample_rate(self.sample_rate)
+                self.sdr_device.set_center_freq(self.center_freq)
+            else:
+                self.use_real_sdr = False
+                self.sdr_status_label.setText('Failed to connect')
+                self.sdr_status_label.setStyleSheet("color: red;")
+                self.statusBar().showMessage(f'Failed to connect to {device_type}')
     
     
 
