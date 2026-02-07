@@ -240,26 +240,14 @@ class WaveRiderWebApp:
                     # Generate simulated samples
                     samples = self.signal_source.generate_samples(self.fft_size)
                 
-                # Apply demodulation if enabled
-                if self.modulation_mode != 'None' and samples is not None:
-                    if self.modulation_mode == 'AM':
-                        demod_signal = self.demodulator.demodulate_am(samples)
-                    elif self.modulation_mode == 'FM':
-                        demod_signal = self.demodulator.demodulate_fm(samples)
-                    elif self.modulation_mode == 'USB':
-                        demod_signal = self.demodulator.demodulate_usb(samples)
-                    elif self.modulation_mode == 'LSB':
-                        demod_signal = self.demodulator.demodulate_lsb(samples)
-                    elif self.modulation_mode == 'CW':
-                        demod_signal = self.demodulator.demodulate_cw(samples)
-                        
-                        # If Morse mode is enabled, decode the signal
-                        if self.morse_mode_enabled:
-                            new_text = self.morse_decoder.process_samples(demod_signal)
-                            if new_text:
-                                self.morse_text += new_text
-                                # Emit Morse update
-                                self.socketio.emit('morse_update', {'text': new_text})
+                # Apply demodulation if Morse mode is enabled (CW detection)
+                if self.morse_mode_enabled and self.modulation_mode == 'CW' and samples is not None:
+                    demod_signal = self.demodulator.demodulate_cw(samples)
+                    new_text = self.morse_decoder.process_samples(demod_signal)
+                    if new_text:
+                        self.morse_text += new_text
+                        # Emit Morse update
+                        self.socketio.emit('morse_update', {'text': new_text})
                 
                 # Compute FFT and convert to dB
                 fft_db = compute_fft_db(samples, self.fft_size)
