@@ -1,0 +1,316 @@
+"""
+WaveRiderSDR Web Interface - Cross-Platform Web Version
+Works on desktop computers and mobile phones via web browser
+"""
+
+import os
+import sys
+import json
+import base64
+import io
+import threading
+import time
+import numpy as np
+from flask import Flask, render_template, jsonify, Response
+from flask_socketio import SocketIO, emit
+import matplotlib
+matplotlib.use('Agg')  # Use non-GUI backend
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from scipy import signal as sp_signal
+
+# Check for pyserial availability
+try:
+    import serial.tools.list_ports
+    PYSERIAL_AVAILABLE = True
+except ImportError:
+    PYSERIAL_AVAILABLE = False
+    print("Warning: pyserial not available. Meshtastic detection will be disabled.")
+
+
+class MeshtasticDetector:
+    """Detect Meshtastic devices via USB"""
+    
+    # Known Meshtastic device vendor IDs
+    MESHTASTIC_VIDS = {
+        0x239a,  # RAK (RAK4631, T-Echo)
+        0x303a,  # Heltec Tracker
+        0x10c4,  # Silicon Labs CP210x (Heltec, T-Lora)
+        0x1a86,  # WCH CH340/341 (T-Beam, T-Lora, Nano G1)
+    }
+    
+    def __init__(self):
+        self.detected_ports = []
+        
+    def detect_devices(self):
+        """Detect Meshtastic devices connected via USB"""
+        if not PYSERIAL_AVAILABLE:
+            return []
+            
+        self.detected_ports = []
+        
+        try:
+            for port in serial.tools.list_ports.comports():
+                if port.vid in self.MESHTASTIC_VIDS:
+                    self.detected_ports.append(port)
+        except Exception as e:
+            print(f"Error detecting devices: {e}")
+                    
+        return self.detected_ports
+
+
+class SignalGenerator:
+    """Generate simulated SDR signals for demonstration"""
+    
+    def __init__(self, sample_rate=2.4e6, center_freq=100e6):
+        self.sample_rate = sample_rate
+        self.center_freq = center_freq
+        self.time = 0
+        
+    def generate_samples(self, num_samples):
+        """Generate simulated RF samples"""
+        # Generate time array
+        t = np.arange(num_samples) / self.sample_rate + self.time
+        self.time += num_samples / self.sample_rate
+        
+        # Create a complex signal with multiple components
+        signal = np.exp(2j * np.pi * 0 * t)
+        signal += 0.3 * np.exp(2j * np.pi * (self.sample_rate * 0.15) * t)
+        signal += 0.2 * np.exp(2j * np.pi * (self.sample_rate * -0.2) * t)
+        
+        # Add FM-like signal
+        fm_freq = self.sample_rate * 0.3
+        modulation = 0.05 * np.sin(2 * np.pi * 1000 * t)
+        signal += 0.4 * np.exp(2j * np.pi * fm_freq * t + modulation)
+        
+        # Add noise
+        noise = (np.random.randn(num_samples) + 1j * np.random.randn(num_samples)) * 0.1
+        signal += noise
+        
+        return signal
+
+
+class WaveRiderWebApp:
+    """Web-based WaveRider SDR application"""
+    
+    def __init__(self):
+        self.app = Flask(__name__)
+        # Generate a random secret key for session security
+        import secrets
+        self.app.config['SECRET_KEY'] = secrets.token_hex(32)
+        self.socketio = SocketIO(self.app, cors_allowed_origins="*")
+        
+        # Signal processing parameters
+        self.sample_rate = 2.4e6
+        self.center_freq = 100e6
+        self.fft_size = 1024
+        self.waterfall_height = 100
+        self.update_interval = 0.05  # 50ms
+        self.running = False
+        
+        # Initialize components
+        self.signal_source = SignalGenerator(self.sample_rate, self.center_freq)
+        self.meshtastic_detector = MeshtasticDetector()
+        self.waterfall_data = np.zeros((self.waterfall_height, self.fft_size))
+        
+        # Setup routes
+        self.setup_routes()
+        self.setup_socketio_events()
+        
+    def setup_routes(self):
+        """Setup Flask routes"""
+        
+        @self.app.route('/')
+        def index():
+            """Main page"""
+            return render_template('index.html')
+        
+        @self.app.route('/api/status')
+        def get_status():
+            """Get current status"""
+            devices = self.meshtastic_detector.detect_devices()
+            return jsonify({
+                'running': self.running,
+                'sample_rate': self.sample_rate,
+                'center_freq': self.center_freq,
+                'fft_size': self.fft_size,
+                'meshtastic_detected': len(devices) > 0,
+                'devices': [{'device': d.device, 'description': d.description} 
+                           for d in devices] if devices else []
+            })
+        
+        @self.app.route('/api/waterfall_image')
+        def get_waterfall_image():
+            """Generate and return waterfall image"""
+            img_data = self.generate_waterfall_image()
+            return Response(img_data, mimetype='image/png')
+    
+    def setup_socketio_events(self):
+        """Setup SocketIO event handlers"""
+        
+        @self.socketio.on('connect')
+        def handle_connect():
+            """Handle client connection"""
+            emit('status', {'message': 'Connected to WaveRider SDR'})
+            
+        @self.socketio.on('start')
+        def handle_start():
+            """Start signal acquisition"""
+            if not self.running:
+                self.running = True
+                threading.Thread(target=self.update_loop, daemon=True).start()
+                emit('status', {'message': 'Started'})
+            else:
+                emit('status', {'message': 'Already running'})
+            
+        @self.socketio.on('stop')
+        def handle_stop():
+            """Stop signal acquisition"""
+            self.running = False
+            emit('status', {'message': 'Stopped'})
+            
+        @self.socketio.on('set_frequency')
+        def handle_set_frequency(data):
+            """Set center frequency"""
+            freq = float(data.get('frequency', 100))
+            self.center_freq = freq * 1e6
+            self.signal_source.center_freq = self.center_freq
+            emit('status', {'message': f'Frequency set to {freq} MHz'})
+            
+        @self.socketio.on('set_sample_rate')
+        def handle_set_sample_rate(data):
+            """Set sample rate"""
+            rate_str = data.get('rate', '2.4 MHz')
+            rate_map = {
+                '2.4 MHz': 2.4e6,
+                '2.048 MHz': 2.048e6,
+                '1.024 MHz': 1.024e6
+            }
+            self.sample_rate = rate_map.get(rate_str, 2.4e6)
+            self.signal_source.sample_rate = self.sample_rate
+            emit('status', {'message': f'Sample rate set to {rate_str}'})
+            
+        @self.socketio.on('set_fft_size')
+        def handle_set_fft_size(data):
+            """Set FFT size"""
+            size = int(data.get('size', 1024))
+            self.fft_size = size
+            self.waterfall_data = np.zeros((self.waterfall_height, self.fft_size))
+            emit('status', {'message': f'FFT size set to {size}'})
+    
+    def update_loop(self):
+        """Main update loop for signal processing"""
+        while self.running:
+            try:
+                # Generate samples
+                samples = self.signal_source.generate_samples(self.fft_size)
+                
+                # Apply window function
+                window = np.hamming(len(samples))
+                samples_windowed = samples * window
+                
+                # Compute FFT
+                fft = np.fft.fftshift(np.fft.fft(samples_windowed))
+                fft_mag = np.abs(fft)
+                fft_db = 20 * np.log10(fft_mag + 1e-10)
+                
+                # Update waterfall
+                self.waterfall_data = np.roll(self.waterfall_data, 1, axis=0)
+                self.waterfall_data[0, :] = fft_db
+                
+                # Generate and send image
+                img_data = self.generate_waterfall_image()
+                img_b64 = base64.b64encode(img_data).decode('utf-8')
+                
+                self.socketio.emit('waterfall_update', {'image': img_b64})
+                
+                # Sleep for update interval
+                time.sleep(self.update_interval)
+                
+            except Exception as e:
+                print(f"Error in update loop: {e}")
+                break
+    
+    def generate_waterfall_image(self):
+        """Generate waterfall visualization as image"""
+        try:
+            fig = Figure(figsize=(10, 6), dpi=80)
+            ax = fig.add_subplot(111)
+            
+            # Create waterfall plot
+            im = ax.imshow(self.waterfall_data, 
+                          aspect='auto', 
+                          cmap='viridis',
+                          interpolation='bilinear',
+                          vmin=-80, vmax=0,
+                          extent=[0, self.fft_size, self.waterfall_height, 0])
+            
+            # Set labels
+            freq_start = (self.center_freq - self.sample_rate / 2) / 1e6
+            freq_end = (self.center_freq + self.sample_rate / 2) / 1e6
+            
+            ax.set_xlabel('Frequency (MHz)')
+            ax.set_ylabel('Time')
+            ax.set_title('Waterfall Display (Spectrogram)')
+            
+            # Set x-axis ticks
+            num_ticks = 5
+            tick_positions = np.linspace(0, self.fft_size, num_ticks)
+            tick_labels = [f'{freq:.2f}' for freq in np.linspace(freq_start, freq_end, num_ticks)]
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(tick_labels)
+            
+            fig.colorbar(im, ax=ax, label='Power (dB)')
+            fig.tight_layout()
+            
+            # Convert to image
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight')
+            buf.seek(0)
+            img_data = buf.getvalue()
+            plt.close(fig)
+            
+            return img_data
+            
+        except Exception as e:
+            print(f"Error generating waterfall image: {e}")
+            # Return a blank image
+            fig = Figure(figsize=(10, 6))
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png')
+            buf.seek(0)
+            plt.close(fig)
+            return buf.getvalue()
+    
+    def run(self, host='0.0.0.0', port=5000, debug=False):
+        """Run the web application
+        
+        Args:
+            host: Host to bind to. Use '0.0.0.0' for all interfaces (mobile access),
+                  or '127.0.0.1' for localhost only (more secure)
+            port: Port to listen on
+            debug: Enable debug mode
+        """
+        print(f"Starting WaveRider SDR Web Interface on http://{host}:{port}")
+        
+        if host == '0.0.0.0':
+            print("\n⚠️  SECURITY NOTICE:")
+            print("   Binding to 0.0.0.0 allows connections from any device on your network.")
+            print("   This is required for mobile device access but less secure.")
+            print("   For localhost-only access, use: app.run(host='127.0.0.1')")
+            print("   Consider using firewall rules to restrict access to trusted devices.\n")
+        
+        print("Access from any device (computer or phone) using a web browser")
+        self.socketio.run(self.app, host=host, port=port, debug=debug)
+
+
+def main():
+    """Main entry point"""
+    app = WaveRiderWebApp()
+    # Start the web server
+    # Use 0.0.0.0 to allow connections from any device on the network
+    app.run(host='0.0.0.0', port=5000)
+
+
+if __name__ == '__main__':
+    main()
