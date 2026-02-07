@@ -12,6 +12,171 @@ try:
 except ImportError:
     PYSERIAL_AVAILABLE = False
 
+# Check for RTL-SDR support
+try:
+    from rtlsdr import RtlSdr
+    RTLSDR_AVAILABLE = True
+except ImportError:
+    RTLSDR_AVAILABLE = False
+
+
+class SDRDevice:
+    """Interface for SDR devices (RTL-SDR, HackRF, etc.)
+    
+    This class provides a unified interface for detecting and reading from
+    various SDR hardware devices.
+    """
+    
+    def __init__(self):
+        """Initialize SDR device interface"""
+        self.device = None
+        self.device_type = None
+        self.is_connected = False
+        self.sample_rate = 2.4e6
+        self.center_freq = 100e6
+        self.gain = 'auto'
+        
+    def detect_devices(self):
+        """Detect available SDR devices
+        
+        Returns:
+            list: List of detected SDR devices with their info
+        """
+        devices = []
+        
+        # Check for RTL-SDR devices
+        if RTLSDR_AVAILABLE:
+            try:
+                # Try to get device count
+                from rtlsdr import librtlsdr
+                device_count = librtlsdr.rtlsdr_get_device_count()
+                
+                for i in range(device_count):
+                    name = librtlsdr.rtlsdr_get_device_name(i)
+                    devices.append({
+                        'index': i,
+                        'type': 'RTL-SDR',
+                        'name': name.decode('utf-8') if isinstance(name, bytes) else str(name),
+                        'description': f'RTL-SDR Device #{i}'
+                    })
+            except Exception as e:
+                print(f"Error detecting RTL-SDR devices: {e}")
+        
+        return devices
+    
+    def connect(self, device_index=0, device_type='RTL-SDR'):
+        """Connect to an SDR device
+        
+        Args:
+            device_index: Index of the device to connect to
+            device_type: Type of device ('RTL-SDR', 'HackRF', etc.)
+            
+        Returns:
+            bool: True if connection successful
+        """
+        try:
+            if device_type == 'RTL-SDR' and RTLSDR_AVAILABLE:
+                self.device = RtlSdr(device_index)
+                self.device_type = 'RTL-SDR'
+                
+                # Configure device with default parameters
+                self.device.sample_rate = self.sample_rate
+                self.device.center_freq = self.center_freq
+                self.device.gain = self.gain
+                
+                self.is_connected = True
+                return True
+            else:
+                print(f"Device type {device_type} not supported or library not available")
+                return False
+                
+        except Exception as e:
+            print(f"Failed to connect to SDR device: {e}")
+            self.is_connected = False
+            return False
+    
+    def disconnect(self):
+        """Disconnect from the SDR device"""
+        if self.device:
+            try:
+                self.device.close()
+            except Exception as e:
+                print(f"Error closing SDR device: {e}")
+        self.device = None
+        self.is_connected = False
+    
+    def set_sample_rate(self, rate):
+        """Set sample rate
+        
+        Args:
+            rate: Sample rate in Hz
+        """
+        self.sample_rate = rate
+        if self.device and self.is_connected:
+            try:
+                self.device.sample_rate = rate
+            except Exception as e:
+                print(f"Error setting sample rate: {e}")
+    
+    def set_center_freq(self, freq):
+        """Set center frequency
+        
+        Args:
+            freq: Center frequency in Hz
+        """
+        self.center_freq = freq
+        if self.device and self.is_connected:
+            try:
+                self.device.center_freq = freq
+            except Exception as e:
+                print(f"Error setting center frequency: {e}")
+    
+    def set_gain(self, gain):
+        """Set gain
+        
+        Args:
+            gain: Gain value or 'auto'
+        """
+        self.gain = gain
+        if self.device and self.is_connected:
+            try:
+                self.device.gain = gain
+            except Exception as e:
+                print(f"Error setting gain: {e}")
+    
+    def read_samples(self, num_samples):
+        """Read IQ samples from the SDR device
+        
+        Args:
+            num_samples: Number of samples to read
+            
+        Returns:
+            numpy.ndarray: Complex IQ samples, or None if not connected
+        """
+        if not self.is_connected or not self.device:
+            return None
+        
+        try:
+            samples = self.device.read_samples(num_samples)
+            return samples
+        except Exception as e:
+            print(f"Error reading samples from SDR: {e}")
+            return None
+    
+    def get_status(self):
+        """Get current SDR device status
+        
+        Returns:
+            dict: Status information
+        """
+        return {
+            'connected': self.is_connected,
+            'device_type': self.device_type,
+            'sample_rate': self.sample_rate,
+            'center_freq': self.center_freq,
+            'gain': self.gain
+        }
+
 
 class MeshtasticDetector:
     """Detect Meshtastic devices via USB
