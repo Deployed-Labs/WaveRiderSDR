@@ -19,6 +19,14 @@ try:
 except ImportError:
     RTLSDR_AVAILABLE = False
 
+# Check for HackRF support via SoapySDR
+try:
+    import SoapySDR
+    from SoapySDR import SOAPY_SDR_RX, SOAPY_SDR_CF32
+    HACKRF_AVAILABLE = True
+except ImportError:
+    HACKRF_AVAILABLE = False
+
 
 class SDRDevice:
     """Interface for SDR devices (RTL-SDR, HackRF, etc.)
@@ -62,6 +70,25 @@ class SDRDevice:
             except Exception as e:
                 print(f"Error detecting RTL-SDR devices: {e}")
         
+        # Check for HackRF devices via SoapySDR
+        if HACKRF_AVAILABLE:
+            try:
+                # Enumerate all SoapySDR devices
+                results = SoapySDR.Device.enumerate()
+                hackrf_count = 0
+                for result in results:
+                    # Check if this is a HackRF device
+                    if 'hackrf' in result.get('driver', '').lower():
+                        devices.append({
+                            'index': hackrf_count,
+                            'type': 'HackRF',
+                            'name': result.get('label', f'HackRF #{hackrf_count}'),
+                            'description': f"HackRF Device #{hackrf_count}: {result.get('serial', 'N/A')}"
+                        })
+                        hackrf_count += 1
+            except Exception as e:
+                print(f"Error detecting HackRF devices: {e}")
+        
         return devices
     
     def connect(self, device_index=0, device_type='RTL-SDR'):
@@ -86,6 +113,34 @@ class SDRDevice:
                 
                 self.is_connected = True
                 return True
+            elif device_type == 'HackRF' and HACKRF_AVAILABLE:
+                # Connect to HackRF via SoapySDR
+                results = SoapySDR.Device.enumerate()
+                hackrf_devices = [r for r in results if 'hackrf' in r.get('driver', '').lower()]
+                
+                if device_index < len(hackrf_devices):
+                    self.device = SoapySDR.Device(hackrf_devices[device_index])
+                    self.device_type = 'HackRF'
+                    
+                    # Setup RX stream
+                    self.hackrf_stream = self.device.setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32)
+                    
+                    # Configure device with default parameters
+                    self.device.setSampleRate(SOAPY_SDR_RX, 0, self.sample_rate)
+                    self.device.setFrequency(SOAPY_SDR_RX, 0, self.center_freq)
+                    
+                    # Set gain (HackRF has different gain controls)
+                    if self.gain != 'auto':
+                        self.device.setGain(SOAPY_SDR_RX, 0, float(self.gain))
+                    
+                    # Activate the stream
+                    self.device.activateStream(self.hackrf_stream)
+                    
+                    self.is_connected = True
+                    return True
+                else:
+                    print(f"HackRF device index {device_index} not found")
+                    return False
             else:
                 print(f"Device type {device_type} not supported or library not available")
                 return False
@@ -99,6 +154,9 @@ class SDRDevice:
         """Disconnect from the SDR device"""
         if self.device:
             try:
+                if self.device_type == 'HackRF' and hasattr(self, 'hackrf_stream'):
+                    self.device.deactivateStream(self.hackrf_stream)
+                    self.device.closeStream(self.hackrf_stream)
                 self.device.close()
             except Exception as e:
                 print(f"Error closing SDR device: {e}")
@@ -114,7 +172,10 @@ class SDRDevice:
         self.sample_rate = rate
         if self.device and self.is_connected:
             try:
-                self.device.sample_rate = rate
+                if self.device_type == 'RTL-SDR':
+                    self.device.sample_rate = rate
+                elif self.device_type == 'HackRF':
+                    self.device.setSampleRate(SOAPY_SDR_RX, 0, rate)
             except Exception as e:
                 print(f"Error setting sample rate: {e}")
     
@@ -127,7 +188,10 @@ class SDRDevice:
         self.center_freq = freq
         if self.device and self.is_connected:
             try:
-                self.device.center_freq = freq
+                if self.device_type == 'RTL-SDR':
+                    self.device.center_freq = freq
+                elif self.device_type == 'HackRF':
+                    self.device.setFrequency(SOAPY_SDR_RX, 0, freq)
             except Exception as e:
                 print(f"Error setting center frequency: {e}")
     
@@ -140,7 +204,10 @@ class SDRDevice:
         self.gain = gain
         if self.device and self.is_connected:
             try:
-                self.device.gain = gain
+                if self.device_type == 'RTL-SDR':
+                    self.device.gain = gain
+                elif self.device_type == 'HackRF' and gain != 'auto':
+                    self.device.setGain(SOAPY_SDR_RX, 0, float(gain))
             except Exception as e:
                 print(f"Error setting gain: {e}")
     
@@ -157,8 +224,17 @@ class SDRDevice:
             return None
         
         try:
-            samples = self.device.read_samples(num_samples)
-            return samples
+            if self.device_type == 'RTL-SDR':
+                samples = self.device.read_samples(num_samples)
+                return samples
+            elif self.device_type == 'HackRF':
+                # Read samples from HackRF via SoapySDR
+                buff = np.zeros(num_samples, dtype=np.complex64)
+                sr = self.device.readStream(self.hackrf_stream, [buff], num_samples)
+                if sr.ret > 0:
+                    return buff[:sr.ret]
+                else:
+                    return None
         except Exception as e:
             print(f"Error reading samples from SDR: {e}")
             return None
@@ -395,3 +471,209 @@ def compute_fft_db(samples, fft_size=None):
     magnitude_db = 20 * np.log10(magnitude + 1e-10)  # Add small value to avoid log(0)
     
     return magnitude_db
+
+
+class Demodulator:
+    """Demodulate various modulation schemes (AM, FM, SSB, CW)
+    
+    This class provides demodulation capabilities for common analog modulation types.
+    """
+    
+    def __init__(self, sample_rate=2.4e6):
+        """Initialize demodulator
+        
+        Args:
+            sample_rate: Sample rate in Hz
+        """
+        self.sample_rate = sample_rate
+        self.prev_phase = 0
+        
+    def demodulate_am(self, samples):
+        """Demodulate AM (Amplitude Modulation) signal
+        
+        Args:
+            samples: Complex IQ samples
+            
+        Returns:
+            numpy.ndarray: Demodulated audio signal
+        """
+        # AM demodulation: simply take the magnitude
+        return np.abs(samples)
+    
+    def demodulate_fm(self, samples):
+        """Demodulate FM (Frequency Modulation) signal
+        
+        Args:
+            samples: Complex IQ samples
+            
+        Returns:
+            numpy.ndarray: Demodulated audio signal
+        """
+        # FM demodulation: compute phase difference
+        phase = np.angle(samples)
+        phase_diff = np.diff(phase)
+        
+        # Unwrap phase to handle wraparound
+        phase_diff = np.unwrap(phase_diff)
+        
+        # Prepend a zero to maintain array length
+        phase_diff = np.insert(phase_diff, 0, self.prev_phase)
+        self.prev_phase = phase_diff[-1]
+        
+        return phase_diff
+    
+    def demodulate_usb(self, samples):
+        """Demodulate USB (Upper Sideband) signal
+        
+        Args:
+            samples: Complex IQ samples
+            
+        Returns:
+            numpy.ndarray: Demodulated audio signal
+        """
+        # USB demodulation: take the real part after shifting frequency
+        return np.real(samples)
+    
+    def demodulate_lsb(self, samples):
+        """Demodulate LSB (Lower Sideband) signal
+        
+        Args:
+            samples: Complex IQ samples
+            
+        Returns:
+            numpy.ndarray: Demodulated audio signal
+        """
+        # LSB demodulation: take the real part after frequency reversal
+        return np.real(np.conj(samples))
+    
+    def demodulate_cw(self, samples):
+        """Demodulate CW (Morse code) signal
+        
+        Args:
+            samples: Complex IQ samples
+            
+        Returns:
+            numpy.ndarray: Demodulated envelope for Morse detection
+        """
+        # CW demodulation: envelope detection
+        return np.abs(samples)
+
+
+class MorseDecoder:
+    """Decode Morse code (CW) signals from demodulated audio
+    
+    This class detects Morse code patterns and converts them to text.
+    """
+    
+    # Morse code dictionary
+    MORSE_CODE = {
+        '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+        '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+        '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+        '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+        '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+        '--..': 'Z', '.----': '1', '..---': '2', '...--': '3', '....-': '4',
+        '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9',
+        '-----': '0', '..--..': '?', '-..-.': '/', '-.-.--': '!',
+        '.--.-.': '@', '.-...': '&', '---...': ':', '-.-.-.': ';',
+        '-...-': '=', '.-.-.': '+', '-....-': '-', '..--.-': '_',
+        '.-..-.': '"', '...-..-': '$', '.--.-.': '@', '.-.-.-': '.'
+    }
+    
+    def __init__(self, sample_rate=2.4e6, wpm=20):
+        """Initialize Morse decoder
+        
+        Args:
+            sample_rate: Sample rate in Hz
+            wpm: Words per minute (affects timing)
+        """
+        self.sample_rate = sample_rate
+        self.wpm = wpm
+        
+        # Calculate timing thresholds based on WPM
+        # Standard: 1 dot = 1.2 / WPM seconds
+        self.dot_duration = 1.2 / wpm
+        self.dash_duration = 3 * self.dot_duration
+        self.element_gap = self.dot_duration
+        self.char_gap = 3 * self.dot_duration
+        self.word_gap = 7 * self.dot_duration
+        
+        # Detection state
+        self.current_symbol = ""
+        self.current_word = ""
+        self.decoded_text = ""
+        self.last_state = 0
+        self.state_duration = 0
+        
+        # Threshold for signal detection
+        self.threshold = 0.3
+        
+    def process_samples(self, envelope):
+        """Process envelope samples to detect Morse code
+        
+        Args:
+            envelope: Demodulated envelope signal
+            
+        Returns:
+            str: Newly decoded text (if any)
+        """
+        # Average the envelope to get signal strength
+        avg_signal = np.mean(envelope)
+        
+        # Detect on/off state
+        current_state = 1 if avg_signal > self.threshold else 0
+        
+        # Calculate duration in samples
+        samples_per_second = self.sample_rate
+        duration_samples = len(envelope)
+        duration_seconds = duration_samples / samples_per_second
+        
+        new_text = ""
+        
+        # If state changed
+        if current_state != self.last_state:
+            if self.last_state == 1:  # End of a tone (dot or dash)
+                if self.state_duration >= self.dash_duration * 0.7:
+                    self.current_symbol += '-'
+                elif self.state_duration >= self.dot_duration * 0.5:
+                    self.current_symbol += '.'
+            else:  # End of a gap
+                if self.state_duration >= self.word_gap * 0.7:
+                    # End of word
+                    if self.current_symbol:
+                        char = self.MORSE_CODE.get(self.current_symbol, '?')
+                        new_text += char + ' '
+                        self.current_symbol = ""
+                elif self.state_duration >= self.char_gap * 0.7:
+                    # End of character
+                    if self.current_symbol:
+                        char = self.MORSE_CODE.get(self.current_symbol, '?')
+                        new_text += char
+                        self.current_symbol = ""
+            
+            self.state_duration = 0
+        
+        # Accumulate duration
+        self.state_duration += duration_seconds
+        self.last_state = current_state
+        
+        if new_text:
+            self.decoded_text += new_text
+        
+        return new_text
+    
+    def get_decoded_text(self):
+        """Get all decoded text
+        
+        Returns:
+            str: Complete decoded text
+        """
+        return self.decoded_text
+    
+    def reset(self):
+        """Reset decoder state"""
+        self.current_symbol = ""
+        self.current_word = ""
+        self.decoded_text = ""
+        self.last_state = 0
+        self.state_duration = 0

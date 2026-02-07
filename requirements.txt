@@ -13,3 +13,9 @@ python-socketio>=5.9.0
 
 # SDR hardware support (optional)
 pyrtlsdr>=0.2.9
+
+# HackRF support via SoapySDR (optional)
+# Note: SoapySDR needs to be installed separately at the system level
+# For Ubuntu/Debian: sudo apt-get install python3-soapysdr soapysdr-module-hackrf
+# For macOS: brew install soapysdr hackrf
+# For Windows: Download from https://github.com/pothosware/SoapySDR/wiki

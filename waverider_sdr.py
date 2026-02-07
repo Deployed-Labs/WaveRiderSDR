@@ -7,7 +7,9 @@ import sys
 import numpy as np
 
 # Import common utilities
-from waverider_common import MeshtasticDetector, LoRaCommunication, SignalGenerator, compute_fft_db, SDRDevice, RTLSDR_AVAILABLE
+from waverider_common import (MeshtasticDetector, LoRaCommunication, SignalGenerator, 
+                               compute_fft_db, SDRDevice, RTLSDR_AVAILABLE, HACKRF_AVAILABLE,
+                               Demodulator, MorseDecoder)
 
 # Check for PyQt5 availability
 try:
@@ -110,6 +112,12 @@ if PYQT5_AVAILABLE:
             # Initialize Meshtastic detector and LoRa communication
             self.meshtastic_detector = MeshtasticDetector()
             self.lora_comm = LoRaCommunication()
+            
+            # Initialize demodulator and Morse decoder
+            self.demodulator = Demodulator(self.sample_rate)
+            self.morse_decoder = MorseDecoder(self.sample_rate)
+            self.modulation_mode = 'None'  # None, AM, FM, USB, LSB, CW
+            self.morse_mode_enabled = False
             
             # FFT parameters
             self.fft_size = 1024
@@ -240,6 +248,41 @@ if PYQT5_AVAILABLE:
             
             main_layout.addLayout(meshtastic_layout)
             
+            # Modulation and Morse code panel
+            mod_layout = QHBoxLayout()
+            
+            # Modulation selection
+            mod_label = QLabel('Modulation:')
+            self.mod_combo = QComboBox()
+            self.mod_combo.addItems(['None', 'AM', 'FM', 'USB', 'LSB', 'CW'])
+            self.mod_combo.currentTextChanged.connect(self.on_modulation_changed)
+            mod_layout.addWidget(mod_label)
+            mod_layout.addWidget(self.mod_combo)
+            
+            # Morse code toggle
+            self.morse_checkbox = QPushButton('Enable Morse Decoder')
+            self.morse_checkbox.setCheckable(True)
+            self.morse_checkbox.toggled.connect(self.on_morse_toggled)
+            mod_layout.addWidget(self.morse_checkbox)
+            
+            mod_layout.addStretch()
+            main_layout.addLayout(mod_layout)
+            
+            # Morse code display area (initially hidden)
+            morse_display_layout = QVBoxLayout()
+            morse_display_label = QLabel('Decoded Morse Code:')
+            self.morse_text_display = QLabel('')
+            self.morse_text_display.setStyleSheet("border: 1px solid gray; padding: 5px; background-color: #f0f0f0; min-height: 40px;")
+            self.morse_text_display.setWordWrap(True)
+            morse_display_layout.addWidget(morse_display_label)
+            morse_display_layout.addWidget(self.morse_text_display)
+            main_layout.addLayout(morse_display_layout)
+            
+            # Initially hide Morse display
+            morse_display_label.hide()
+            self.morse_text_display.hide()
+            self.morse_display_label_widget = morse_display_label
+            
             # Status bar
             self.statusBar().showMessage('Ready - Click Start to begin acquisition')
             
@@ -255,6 +298,26 @@ if PYQT5_AVAILABLE:
             else:
                 # Get samples from simulated signal source (fallback)
                 samples = self.signal_source.generate_samples(self.fft_size)
+            
+            # Apply demodulation if enabled
+            if self.modulation_mode != 'None' and samples is not None:
+                if self.modulation_mode == 'AM':
+                    demod_signal = self.demodulator.demodulate_am(samples)
+                elif self.modulation_mode == 'FM':
+                    demod_signal = self.demodulator.demodulate_fm(samples)
+                elif self.modulation_mode == 'USB':
+                    demod_signal = self.demodulator.demodulate_usb(samples)
+                elif self.modulation_mode == 'LSB':
+                    demod_signal = self.demodulator.demodulate_lsb(samples)
+                elif self.modulation_mode == 'CW':
+                    demod_signal = self.demodulator.demodulate_cw(samples)
+                    
+                    # If Morse mode is enabled, decode the signal
+                    if self.morse_mode_enabled:
+                        new_text = self.morse_decoder.process_samples(demod_signal)
+                        if new_text:
+                            current_text = self.morse_text_display.text()
+                            self.morse_text_display.setText(current_text + new_text)
             
             # Compute FFT and convert to dB
             fft_db = compute_fft_db(samples, self.fft_size)
@@ -327,6 +390,40 @@ if PYQT5_AVAILABLE:
                     self.statusBar().showMessage(f'Running - Reading from {self.sdr_device.device_type}')
                 else:
                     self.statusBar().showMessage('Running - Using simulated data (no SDR connected)')
+        
+        def on_modulation_changed(self, mode):
+            """Handle modulation mode change"""
+            self.modulation_mode = mode
+            self.demodulator = Demodulator(self.sample_rate)  # Reset demodulator
+            self.statusBar().showMessage(f'Modulation mode: {mode}')
+            
+            # If CW is selected, suggest enabling Morse decoder
+            if mode == 'CW' and not self.morse_mode_enabled:
+                self.statusBar().showMessage('CW mode selected - Enable Morse Decoder to decode CW signals')
+        
+        def on_morse_toggled(self, checked):
+            """Handle Morse decoder toggle"""
+            self.morse_mode_enabled = checked
+            
+            if checked:
+                # Show Morse display
+                self.morse_display_label_widget.show()
+                self.morse_text_display.show()
+                self.morse_decoder.reset()
+                self.morse_text_display.setText('')
+                self.morse_checkbox.setText('Disable Morse Decoder')
+                
+                # Set modulation to CW if not already set
+                if self.modulation_mode != 'CW':
+                    self.mod_combo.setCurrentText('CW')
+                
+                self.statusBar().showMessage('Morse decoder enabled')
+            else:
+                # Hide Morse display
+                self.morse_display_label_widget.hide()
+                self.morse_text_display.hide()
+                self.morse_checkbox.setText('Enable Morse Decoder')
+                self.statusBar().showMessage('Morse decoder disabled')
         
         def check_meshtastic_devices(self):
             """Check for Meshtastic devices and enable LoRa if detected"""
