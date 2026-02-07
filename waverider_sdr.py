@@ -6,6 +6,9 @@ Main application entry point - Desktop GUI version
 import sys
 import numpy as np
 
+# Import common utilities
+from waverider_common import MeshtasticDetector, LoRaCommunication, SignalGenerator, compute_fft_db
+
 # Check for PyQt5 availability
 try:
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -20,179 +23,7 @@ except ImportError:
     print("Or use the web version: python waverider_web.py")
 
 from matplotlib.figure import Figure
-from scipy import signal as sp_signal
 import matplotlib.pyplot as plt
-
-# Check for pyserial availability
-try:
-    import serial.tools.list_ports
-    PYSERIAL_AVAILABLE = True
-except ImportError:
-    PYSERIAL_AVAILABLE = False
-    print("Warning: pyserial not available. Meshtastic detection will be disabled.")
-
-
-class MeshtasticDetector:
-    """Detect Meshtastic devices via USB"""
-    
-    # Known Meshtastic device vendor IDs
-    MESHTASTIC_VIDS = {
-        0x239a,  # RAK (RAK4631, T-Echo)
-        0x303a,  # Heltec Tracker
-        0x10c4,  # Silicon Labs CP210x (Heltec, T-Lora)
-        0x1a86,  # WCH CH340/341 (T-Beam, T-Lora, Nano G1)
-    }
-    
-    def __init__(self):
-        self.detected_ports = []
-        
-    def detect_devices(self):
-        """Detect Meshtastic devices connected via USB
-        
-        Returns:
-            list: List of serial port objects for detected Meshtastic devices
-        """
-        if not PYSERIAL_AVAILABLE:
-            return []
-            
-        self.detected_ports = []
-        
-        try:
-            for port in serial.tools.list_ports.comports():
-                if port.vid in self.MESHTASTIC_VIDS:
-                    self.detected_ports.append(port)
-        except Exception as e:
-            print(f"Error detecting devices: {e}")
-                
-        return self.detected_ports
-    
-    def get_device_info(self, port):
-        """Get information about a detected device
-        
-        Args:
-            port: Serial port object
-            
-        Returns:
-            dict: Device information
-        """
-        return {
-            'device': port.device,
-            'vid': hex(port.vid) if port.vid else 'N/A',
-            'pid': hex(port.pid) if port.pid else 'N/A',
-            'description': port.description,
-            'manufacturer': port.manufacturer
-        }
-
-
-class LoRaCommunication:
-    """Manage LoRa communication with Meshtastic devices"""
-    
-    def __init__(self, port=None):
-        self.port = port
-        self.serial_connection = None
-        self.is_connected = False
-        self.frequency = 915.0  # Default LoRa frequency in MHz (US)
-        self.bandwidth = 125  # kHz
-        self.spreading_factor = 7
-        
-    def connect(self, port):
-        """Connect to a Meshtastic device
-        
-        Args:
-            port: Serial port device path
-            
-        Returns:
-            bool: True if connection successful
-        """
-        try:
-            self.port = port
-            # Note: Actual serial connection would be opened here
-            # For now, we'll simulate the connection
-            self.is_connected = True
-            return True
-        except Exception as e:
-            print(f"Failed to connect to {port}: {e}")
-            self.is_connected = False
-            return False
-    
-    def disconnect(self):
-        """Disconnect from the Meshtastic device"""
-        if self.serial_connection:
-            try:
-                self.serial_connection.close()
-            except:
-                pass
-        self.is_connected = False
-        
-    def configure_lora_params(self, frequency=None, bandwidth=None, spreading_factor=None):
-        """Configure LoRa communication parameters
-        
-        Args:
-            frequency: LoRa frequency in MHz
-            bandwidth: Bandwidth in kHz
-            spreading_factor: LoRa spreading factor (7-12)
-        """
-        if frequency is not None:
-            self.frequency = frequency
-        if bandwidth is not None:
-            self.bandwidth = bandwidth
-        if spreading_factor is not None:
-            self.spreading_factor = spreading_factor
-            
-    def get_status(self):
-        """Get current LoRa communication status
-        
-        Returns:
-            dict: Status information
-        """
-        return {
-            'connected': self.is_connected,
-            'port': self.port,
-            'frequency': self.frequency,
-            'bandwidth': self.bandwidth,
-            'spreading_factor': self.spreading_factor
-        }
-
-
-class SignalGenerator:
-    """Generate simulated SDR signals for demonstration"""
-    
-    def __init__(self, sample_rate=2.4e6, center_freq=100e6):
-        self.sample_rate = sample_rate
-        self.center_freq = center_freq
-        self.time = 0
-        
-    def generate_samples(self, num_samples):
-        """Generate simulated RF samples
-        
-        Args:
-            num_samples: Number of samples to generate
-            
-        Returns:
-            Complex IQ samples
-        """
-        # Generate time array
-        t = np.arange(num_samples) / self.sample_rate + self.time
-        self.time += num_samples / self.sample_rate
-        
-        # Create a complex signal with multiple components
-        # 1. Carrier wave
-        signal = np.exp(2j * np.pi * 0 * t)
-        
-        # 2. Add some modulated signals at different frequencies
-        signal += 0.3 * np.exp(2j * np.pi * (self.sample_rate * 0.15) * t)
-        signal += 0.2 * np.exp(2j * np.pi * (self.sample_rate * -0.2) * t)
-        
-        # 3. Add FM-like signal
-        fm_freq = self.sample_rate * 0.3
-        modulation = 0.05 * np.sin(2 * np.pi * 1000 * t)
-        signal += 0.4 * np.exp(2j * np.pi * fm_freq * t + modulation)
-        
-        # 4. Add noise
-        noise = (np.random.randn(num_samples) + 1j * np.random.randn(num_samples)) * 0.1
-        signal += noise
-        
-        return signal
 
 
 # Only define GUI classes if PyQt5 is available
@@ -390,16 +221,8 @@ if PYQT5_AVAILABLE:
             # Get samples from signal source
             samples = self.signal_source.generate_samples(self.fft_size)
             
-            # Apply window function
-            window = np.hamming(len(samples))
-            samples_windowed = samples * window
-            
-            # Compute FFT
-            fft = np.fft.fftshift(np.fft.fft(samples_windowed))
-            
-            # Convert to dB
-            fft_mag = np.abs(fft)
-            fft_db = 20 * np.log10(fft_mag + 1e-10)  # Add small value to avoid log(0)
+            # Compute FFT and convert to dB
+            fft_db = compute_fft_db(samples, self.fft_size)
             
             # Update waterfall
             self.waterfall.update_waterfall(fft_db)

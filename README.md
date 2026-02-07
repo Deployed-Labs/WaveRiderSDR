@@ -1,6 +1,20 @@
 # WaveRiderSDR
 The only SDR with full features, rolling updates, and **universal cross-platform compatibility**.
 
+## 🎯 Features
+
+- **Universal Cross-Platform**: Works on Windows, macOS, Linux, iOS, Android, and any device with a web browser
+- **Automatic Platform Detection**: Intelligently chooses the best interface for your device
+- **Responsive Design**: Adapts to any screen size - from phones to desktop monitors
+- **Optimized Codebase**: Refactored with shared modules for better maintainability and performance
+- **Waterfall Display (Spectrogram)**: Real-time visualization of frequency spectrum over time
+- **Interactive Controls**: Adjust center frequency, sample rate, FFT size, and update rate
+- **Signal Processing**: Optimized FFT-based frequency analysis with windowing
+- **Flexible Display**: Colormap-based visualization for easy signal identification
+- **Mobile-Optimized**: Touch-friendly controls and optimized layouts for phones and tablets
+- **Meshtastic Device Detection**: Automatic detection of Meshtastic devices via USB
+- **LoRa Communication**: Enables LoRa communication when Meshtastic device is detected
+
 ## 🚀 Quick Start
 
 ### One Command - Any Platform
@@ -273,6 +287,35 @@ To access WaveRider SDR from mobile devices:
 - **No Public Exposure**: Do not forward port 5000 through your router unless you add authentication and HTTPS
 - **Trusted Networks**: Only run on trusted WiFi networks, not public WiFi
 - **Local-Only Mode**: For localhost-only access (no mobile), edit `waverider_web.py` to use `host='127.0.0.1'`
+
+## 📁 Project Structure
+
+WaveRider SDR is built with a modular architecture for maintainability and code reuse:
+
+```
+WaveRiderSDR/
+├── run.py                    # Universal launcher (auto-detects platform)
+├── waverider_sdr.py          # Desktop GUI application (PyQt5)
+├── waverider_web.py          # Web interface (Flask + SocketIO)
+├── waverider_common.py       # Shared utilities and classes
+│   ├── MeshtasticDetector    # USB device detection
+│   ├── LoRaCommunication     # LoRa communication management
+│   ├── SignalGenerator       # Simulated RF signal generation
+│   └── compute_fft_db()      # Optimized FFT computation
+├── templates/
+│   └── index.html            # Web interface template
+├── requirements.txt          # Python dependencies
+├── README.md                 # This file
+├── PLATFORM_GUIDE.md         # Detailed platform instructions
+└── IMPLEMENTATION_SUMMARY.md # Technical implementation details
+```
+
+### Key Optimizations
+
+- **Shared Code Module**: Common classes moved to `waverider_common.py` to eliminate duplication
+- **Optimized FFT Processing**: Centralized FFT computation with Hamming windowing
+- **Efficient Signal Generation**: Reusable signal generator for both interfaces
+- **Graceful Dependency Handling**: Optional imports with informative error messages
 
 ## Future Enhancements
 

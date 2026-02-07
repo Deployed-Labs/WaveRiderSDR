@@ -17,77 +17,9 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from scipy import signal as sp_signal
 
-# Check for pyserial availability
-try:
-    import serial.tools.list_ports
-    PYSERIAL_AVAILABLE = True
-except ImportError:
-    PYSERIAL_AVAILABLE = False
-    print("Warning: pyserial not available. Meshtastic detection will be disabled.")
-
-
-class MeshtasticDetector:
-    """Detect Meshtastic devices via USB"""
-    
-    # Known Meshtastic device vendor IDs
-    MESHTASTIC_VIDS = {
-        0x239a,  # RAK (RAK4631, T-Echo)
-        0x303a,  # Heltec Tracker
-        0x10c4,  # Silicon Labs CP210x (Heltec, T-Lora)
-        0x1a86,  # WCH CH340/341 (T-Beam, T-Lora, Nano G1)
-    }
-    
-    def __init__(self):
-        self.detected_ports = []
-        
-    def detect_devices(self):
-        """Detect Meshtastic devices connected via USB"""
-        if not PYSERIAL_AVAILABLE:
-            return []
-            
-        self.detected_ports = []
-        
-        try:
-            for port in serial.tools.list_ports.comports():
-                if port.vid in self.MESHTASTIC_VIDS:
-                    self.detected_ports.append(port)
-        except Exception as e:
-            print(f"Error detecting devices: {e}")
-                    
-        return self.detected_ports
-
-
-class SignalGenerator:
-    """Generate simulated SDR signals for demonstration"""
-    
-    def __init__(self, sample_rate=2.4e6, center_freq=100e6):
-        self.sample_rate = sample_rate
-        self.center_freq = center_freq
-        self.time = 0
-        
-    def generate_samples(self, num_samples):
-        """Generate simulated RF samples"""
-        # Generate time array
-        t = np.arange(num_samples) / self.sample_rate + self.time
-        self.time += num_samples / self.sample_rate
-        
-        # Create a complex signal with multiple components
-        signal = np.exp(2j * np.pi * 0 * t)
-        signal += 0.3 * np.exp(2j * np.pi * (self.sample_rate * 0.15) * t)
-        signal += 0.2 * np.exp(2j * np.pi * (self.sample_rate * -0.2) * t)
-        
-        # Add FM-like signal
-        fm_freq = self.sample_rate * 0.3
-        modulation = 0.05 * np.sin(2 * np.pi * 1000 * t)
-        signal += 0.4 * np.exp(2j * np.pi * fm_freq * t + modulation)
-        
-        # Add noise
-        noise = (np.random.randn(num_samples) + 1j * np.random.randn(num_samples)) * 0.1
-        signal += noise
-        
-        return signal
+# Import common utilities
+from waverider_common import MeshtasticDetector, SignalGenerator, compute_fft_db
 
 
 class WaveRiderWebApp:
@@ -205,14 +137,8 @@ class WaveRiderWebApp:
                 # Generate samples
                 samples = self.signal_source.generate_samples(self.fft_size)
                 
-                # Apply window function
-                window = np.hamming(len(samples))
-                samples_windowed = samples * window
-                
-                # Compute FFT
-                fft = np.fft.fftshift(np.fft.fft(samples_windowed))
-                fft_mag = np.abs(fft)
-                fft_db = 20 * np.log10(fft_mag + 1e-10)
+                # Compute FFT and convert to dB
+                fft_db = compute_fft_db(samples, self.fft_size)
                 
                 # Update waterfall
                 self.waterfall_data = np.roll(self.waterfall_data, 1, axis=0)

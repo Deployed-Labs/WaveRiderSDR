@@ -16,14 +16,18 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual environments
 venv/
 ENV/
 env/
+.venv
 
 # IDEs
 .vscode/
@@ -31,16 +35,57 @@ env/
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+.Spotlight-V100
+.Trashes
 
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
 
 # Temporary files
 /tmp/
 *.tmp
+*.log
+*.bak
+*.orig
+
+# Database
+*.db
+*.sqlite3
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Package management
+Pipfile.lock
+poetry.lock
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
