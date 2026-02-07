@@ -143,6 +143,20 @@
             box-shadow: 0 5px 15px rgba(238, 9, 121, 0.4);
         }
         
+        .btn-secondary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary.active {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
         button:active {
             transform: translateY(0);
         }
@@ -310,9 +324,33 @@
                 </select>
             </div>
             
+            <div class="control-group">
+                <label for="modulation">Modulation</label>
+                <select id="modulation">
+                    <option value="None" selected>None</option>
+                    <option value="AM">AM</option>
+                    <option value="FM">FM</option>
+                    <option value="USB">USB</option>
+                    <option value="LSB">LSB</option>
+                    <option value="CW">CW (Morse)</option>
+                </select>
+            </div>
+            
+            <div class="button-group">
+                <button id="morse-btn" class="btn-secondary" onclick="toggleMorse()">Enable Morse Decoder</button>
+            </div>
+            
             <div class="button-group">
                 <button id="start-btn" class="btn-start" onclick="startAcquisition()">▶ Start</button>
                 <button id="stop-btn" class="btn-stop" onclick="stopAcquisition()">⏸ Stop</button>
+            </div>
+        </div>
+        
+        <!-- Morse code display area (initially hidden) -->
+        <div id="morse-display" style="display: none; padding: 20px; background: #f9f9f9; border-top: 2px solid #667eea;">
+            <h3 style="margin-bottom: 10px; color: #2c3e50;">Decoded Morse Code:</h3>
+            <div id="morse-text" style="padding: 15px; background: white; border: 2px solid #ddd; border-radius: 8px; min-height: 60px; font-family: monospace; font-size: 1.1rem; line-height: 1.6;">
+                <!-- Morse text will appear here -->
             </div>
         </div>
         
@@ -408,6 +446,44 @@
         
         document.getElementById('fft-size').addEventListener('change', function() {
             socket.emit('set_fft_size', { size: this.value });
+        });
+        
+        document.getElementById('modulation').addEventListener('change', function() {
+            socket.emit('set_modulation', { mode: this.value });
+        });
+        
+        // Morse decoder state
+        let morseEnabled = false;
+        
+        function toggleMorse() {
+            morseEnabled = !morseEnabled;
+            const morseBtn = document.getElementById('morse-btn');
+            const morseDisplay = document.getElementById('morse-display');
+            
+            if (morseEnabled) {
+                morseBtn.textContent = 'Disable Morse Decoder';
+                morseBtn.classList.add('active');
+                morseDisplay.style.display = 'block';
+                document.getElementById('morse-text').textContent = '';
+                
+                // Auto-set modulation to CW
+                document.getElementById('modulation').value = 'CW';
+                socket.emit('set_modulation', { mode: 'CW' });
+            } else {
+                morseBtn.textContent = 'Enable Morse Decoder';
+                morseBtn.classList.remove('active');
+                morseDisplay.style.display = 'none';
+            }
+            
+            socket.emit('toggle_morse', { enabled: morseEnabled });
+        }
+        
+        // Morse updates
+        socket.on('morse_update', function(data) {
+            const morseText = document.getElementById('morse-text');
+            morseText.textContent += data.text;
+            // Auto-scroll to bottom
+            morseText.scrollTop = morseText.scrollHeight;
         });
         
         // Check device status
