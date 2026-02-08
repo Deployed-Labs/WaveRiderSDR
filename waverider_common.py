@@ -36,6 +36,139 @@ except ImportError:
 from scipy import signal as scipy_signal
 
 
+class BandPlan:
+    """Comprehensive frequency band plan for radio navigation
+    
+    Includes amateur radio bands, broadcast bands, aviation, marine, and other
+    commonly used frequency allocations.
+    """
+    
+    # Comprehensive band plan with frequencies in Hz
+    BANDS = {
+        # AM Broadcast
+        'AM Broadcast': {'start': 530e3, 'end': 1700e3, 'center': 1000e3, 'mode': 'AM', 'description': 'AM Radio Broadcasting'},
+        
+        # Shortwave Broadcast Bands
+        'SW 120m': {'start': 2300e3, 'end': 2495e3, 'center': 2400e3, 'mode': 'AM', 'description': 'Shortwave 120m Band'},
+        'SW 90m': {'start': 3200e3, 'end': 3400e3, 'center': 3300e3, 'mode': 'AM', 'description': 'Shortwave 90m Band'},
+        'SW 75m': {'start': 3900e3, 'end': 4000e3, 'center': 3950e3, 'mode': 'AM', 'description': 'Shortwave 75m Band'},
+        'SW 60m': {'start': 4750e3, 'end': 5060e3, 'center': 4900e3, 'mode': 'AM', 'description': 'Shortwave 60m Band'},
+        'SW 49m': {'start': 5900e3, 'end': 6200e3, 'center': 6050e3, 'mode': 'AM', 'description': 'Shortwave 49m Band'},
+        'SW 41m': {'start': 7200e3, 'end': 7450e3, 'center': 7325e3, 'mode': 'AM', 'description': 'Shortwave 41m Band'},
+        'SW 31m': {'start': 9400e3, 'end': 9900e3, 'center': 9650e3, 'mode': 'AM', 'description': 'Shortwave 31m Band'},
+        'SW 25m': {'start': 11600e3, 'end': 12100e3, 'center': 11850e3, 'mode': 'AM', 'description': 'Shortwave 25m Band'},
+        'SW 22m': {'start': 13570e3, 'end': 13870e3, 'center': 13720e3, 'mode': 'AM', 'description': 'Shortwave 22m Band'},
+        'SW 19m': {'start': 15100e3, 'end': 15800e3, 'center': 15450e3, 'mode': 'AM', 'description': 'Shortwave 19m Band'},
+        'SW 16m': {'start': 17480e3, 'end': 17900e3, 'center': 17690e3, 'mode': 'AM', 'description': 'Shortwave 16m Band'},
+        'SW 13m': {'start': 21450e3, 'end': 21850e3, 'center': 21650e3, 'mode': 'AM', 'description': 'Shortwave 13m Band'},
+        'SW 11m': {'start': 25600e3, 'end': 26100e3, 'center': 25850e3, 'mode': 'AM', 'description': 'Shortwave 11m Band'},
+        
+        # Citizens Band (CB)
+        'CB Radio': {'start': 26.965e6, 'end': 27.405e6, 'center': 27.185e6, 'mode': 'AM', 'description': 'Citizens Band Radio'},
+        
+        # Amateur Radio Bands (HF)
+        '160m Ham': {'start': 1.8e6, 'end': 2.0e6, 'center': 1.9e6, 'mode': 'LSB', 'description': 'Amateur 160m Band'},
+        '80m Ham': {'start': 3.5e6, 'end': 4.0e6, 'center': 3.75e6, 'mode': 'LSB', 'description': 'Amateur 80m Band'},
+        '60m Ham': {'start': 5.3305e6, 'end': 5.4035e6, 'center': 5.357e6, 'mode': 'USB', 'description': 'Amateur 60m Band'},
+        '40m Ham': {'start': 7.0e6, 'end': 7.3e6, 'center': 7.15e6, 'mode': 'LSB', 'description': 'Amateur 40m Band'},
+        '30m Ham': {'start': 10.1e6, 'end': 10.15e6, 'center': 10.125e6, 'mode': 'USB', 'description': 'Amateur 30m Band'},
+        '20m Ham': {'start': 14.0e6, 'end': 14.35e6, 'center': 14.175e6, 'mode': 'USB', 'description': 'Amateur 20m Band'},
+        '17m Ham': {'start': 18.068e6, 'end': 18.168e6, 'center': 18.118e6, 'mode': 'USB', 'description': 'Amateur 17m Band'},
+        '15m Ham': {'start': 21.0e6, 'end': 21.45e6, 'center': 21.225e6, 'mode': 'USB', 'description': 'Amateur 15m Band'},
+        '12m Ham': {'start': 24.89e6, 'end': 24.99e6, 'center': 24.94e6, 'mode': 'USB', 'description': 'Amateur 12m Band'},
+        '10m Ham': {'start': 28.0e6, 'end': 29.7e6, 'center': 28.85e6, 'mode': 'USB', 'description': 'Amateur 10m Band'},
+        
+        # VHF/UHF Bands
+        'FM Broadcast': {'start': 87.5e6, 'end': 108e6, 'center': 98e6, 'mode': 'WFM', 'description': 'FM Radio Broadcasting'},
+        'Air Band': {'start': 108e6, 'end': 137e6, 'center': 120e6, 'mode': 'AM', 'description': 'Aviation Communication'},
+        '2m Ham': {'start': 144e6, 'end': 148e6, 'center': 146e6, 'mode': 'FM', 'description': 'Amateur 2m Band'},
+        'Marine VHF': {'start': 156e6, 'end': 162e6, 'center': 156.8e6, 'mode': 'FM', 'description': 'Marine Communication'},
+        'Weather Radio': {'start': 162.4e6, 'end': 162.55e6, 'center': 162.5e6, 'mode': 'FM', 'description': 'NOAA Weather Radio'},
+        'PMR446': {'start': 446e6, 'end': 446.2e6, 'center': 446.1e6, 'mode': 'FM', 'description': 'Personal Mobile Radio'},
+        '70cm Ham': {'start': 420e6, 'end': 450e6, 'center': 435e6, 'mode': 'FM', 'description': 'Amateur 70cm Band'},
+        'GMRS/FRS': {'start': 462e6, 'end': 467e6, 'center': 464.5e6, 'mode': 'FM', 'description': 'GMRS/FRS Family Radio'},
+        
+        # ISM Bands
+        'ISM 433': {'start': 433.05e6, 'end': 434.79e6, 'center': 433.92e6, 'mode': 'FM', 'description': 'ISM 433 MHz Band'},
+        'ISM 868': {'start': 863e6, 'end': 870e6, 'center': 868e6, 'mode': 'FM', 'description': 'ISM 868 MHz Band'},
+        'ISM 915': {'start': 902e6, 'end': 928e6, 'center': 915e6, 'mode': 'FM', 'description': 'ISM 915 MHz Band'},
+        
+        # Public Safety & Services
+        'Pagers': {'start': 929e6, 'end': 932e6, 'center': 930e6, 'mode': 'FM', 'description': 'Pager Services'},
+        'GSM-900': {'start': 890e6, 'end': 960e6, 'center': 925e6, 'mode': 'FM', 'description': 'GSM 900 MHz'},
+        'GSM-1800': {'start': 1710e6, 'end': 1880e6, 'center': 1800e6, 'mode': 'FM', 'description': 'GSM 1800 MHz'},
+        
+        # Satellite & Space
+        'L-Band Sat': {'start': 1530e6, 'end': 1559e6, 'center': 1545e6, 'mode': 'FM', 'description': 'L-Band Satellite'},
+        'GPS L1': {'start': 1575.42e6, 'end': 1575.42e6, 'center': 1575.42e6, 'mode': 'FM', 'description': 'GPS L1 Signal'},
+    }
+    
+    @classmethod
+    def get_all_bands(cls):
+        """Get list of all band names
+        
+        Returns:
+            list: Sorted list of band names
+        """
+        return sorted(cls.BANDS.keys())
+    
+    @classmethod
+    def get_band_info(cls, band_name):
+        """Get information about a specific band
+        
+        Args:
+            band_name: Name of the band
+            
+        Returns:
+            dict: Band information (start, end, center, mode, description)
+        """
+        return cls.BANDS.get(band_name, None)
+    
+    @classmethod
+    def find_band(cls, frequency):
+        """Find which band a frequency belongs to
+        
+        Args:
+            frequency: Frequency in Hz
+            
+        Returns:
+            str: Band name or None if not in any band
+        """
+        for band_name, info in cls.BANDS.items():
+            if info['start'] <= frequency <= info['end']:
+                return band_name
+        return None
+    
+    @classmethod
+    def get_bands_by_category(cls):
+        """Get bands organized by category
+        
+        Returns:
+            dict: Bands organized by category
+        """
+        categories = {
+            'Broadcast': [],
+            'Amateur Radio': [],
+            'Aviation/Marine': [],
+            'ISM/Unlicensed': [],
+            'Commercial': [],
+        }
+        
+        for band_name in cls.BANDS.keys():
+            if 'Ham' in band_name:
+                categories['Amateur Radio'].append(band_name)
+            elif 'Broadcast' in band_name or 'SW' in band_name or 'AM' in band_name or 'FM' in band_name:
+                categories['Broadcast'].append(band_name)
+            elif 'Air' in band_name or 'Marine' in band_name or 'Weather' in band_name:
+                categories['Aviation/Marine'].append(band_name)
+            elif 'ISM' in band_name or 'CB' in band_name or 'PMR' in band_name or 'GMRS' in band_name or 'FRS' in band_name:
+                categories['ISM/Unlicensed'].append(band_name)
+            else:
+                categories['Commercial'].append(band_name)
+        
+        return {k: v for k, v in categories.items() if v}  # Remove empty categories
+
+
 class SDRDevice:
     """Interface for SDR devices (RTL-SDR, HackRF, etc.)
     

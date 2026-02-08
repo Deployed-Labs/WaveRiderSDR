@@ -21,7 +21,7 @@ from matplotlib.figure import Figure
 # Import common utilities
 from waverider_common import (MeshtasticDetector, SignalGenerator, compute_fft_db, SDRDevice, 
                              RTLSDR_AVAILABLE, AudioDemodulator, FMDemodulator, AMDemodulator, 
-                             SSBDemodulator, AUDIO_AVAILABLE, WaterfallSettings)
+                             SSBDemodulator, AUDIO_AVAILABLE, WaterfallSettings, BandPlan)
 
 
 class WaveRiderWebApp:
@@ -131,6 +131,59 @@ class WaveRiderWebApp:
                 self.sdr_device.set_center_freq(self.center_freq)
             
             emit('status', {'message': f'Frequency set to {freq} MHz'})
+        
+        @self.socketio.on('set_band')
+        def handle_set_band(data):
+            """Set frequency band from band plan"""
+            band_name = data.get('band', '')
+            band_info = BandPlan.get_band_info(band_name)
+            
+            if band_info:
+                # Set center frequency
+                center_freq_mhz = band_info['center'] / 1e6
+                self.center_freq = band_info['center']
+                self.signal_source.center_freq = self.center_freq
+                
+                # Update SDR device if connected
+                if self.use_real_sdr and self.sdr_device.is_connected:
+                    self.sdr_device.set_center_freq(self.center_freq)
+                
+                # Set recommended modulation mode
+                recommended_mode = band_info.get('mode', 'FM')
+                if recommended_mode in ['FM', 'AM', 'USB', 'LSB']:
+                    self.modulation_mode = recommended_mode
+                    
+                    # Create appropriate demodulator
+                    if recommended_mode == 'FM':
+                        self.demodulator = FMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+                    elif recommended_mode == 'AM':
+                        self.demodulator = AMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+                    elif recommended_mode == 'USB':
+                        self.demodulator = SSBDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate, mode='USB')
+                    elif recommended_mode == 'LSB':
+                        self.demodulator = SSBDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate, mode='LSB')
+                elif recommended_mode == 'WFM':
+                    self.modulation_mode = 'FM'
+                    self.demodulator = FMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+                
+                # Notify client
+                desc = band_info.get('description', band_name)
+                freq_range = f"{band_info['start']/1e6:.3f} - {band_info['end']/1e6:.3f} MHz"
+                emit('status', {'message': f'{desc} | {freq_range} | Mode: {recommended_mode}'})
+                emit('band_changed', {
+                    'frequency': center_freq_mhz,
+                    'modulation': self.modulation_mode,
+                    'description': desc
+                })
+                
+                if self.audio_enabled:
+                    emit('audio_status', {'message': f'Audio: Ready ({self.modulation_mode})', 'color': 'blue'})
+            
+        @self.socketio.on('get_bands')
+        def handle_get_bands():
+            """Get list of all bands"""
+            bands = BandPlan.get_all_bands()
+            emit('bands_list', {'bands': bands})
             
         @self.socketio.on('set_sample_rate')
         def handle_set_sample_rate(data):

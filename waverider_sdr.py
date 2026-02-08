@@ -10,7 +10,7 @@ import numpy as np
 from waverider_common import (MeshtasticDetector, LoRaCommunication, SignalGenerator, 
                              compute_fft_db, SDRDevice, RTLSDR_AVAILABLE,
                              AudioDemodulator, FMDemodulator, AMDemodulator, SSBDemodulator,
-                             AudioPlayer, AUDIO_AVAILABLE, WaterfallSettings)
+                             AudioPlayer, AUDIO_AVAILABLE, WaterfallSettings, BandPlan)
 
 # Check for PyQt5 availability
 try:
@@ -178,6 +178,18 @@ if PYQT5_AVAILABLE:
             
             # Create controls panel
             controls_layout = QHBoxLayout()
+            
+            # Band plan selector
+            band_layout = QVBoxLayout()
+            band_label = QLabel('Quick Band:')
+            self.band_combo = QComboBox()
+            self.band_combo.addItem('-- Select Band --')
+            for band_name in BandPlan.get_all_bands():
+                self.band_combo.addItem(band_name)
+            self.band_combo.currentTextChanged.connect(self.on_band_selected)
+            band_layout.addWidget(band_label)
+            band_layout.addWidget(self.band_combo)
+            controls_layout.addLayout(band_layout)
             
             # Center frequency control
             freq_layout = QVBoxLayout()
@@ -432,6 +444,29 @@ if PYQT5_AVAILABLE:
             
             self.waterfall.set_frequency_labels(self.center_freq, self.sample_rate)
             self.statusBar().showMessage(f'Center frequency: {value} MHz')
+        
+        def on_band_selected(self, band_name):
+            """Handle band plan selection"""
+            if band_name == '-- Select Band --':
+                return
+            
+            band_info = BandPlan.get_band_info(band_name)
+            if band_info:
+                # Set center frequency
+                center_freq_mhz = band_info['center'] / 1e6
+                self.freq_spinbox.setValue(center_freq_mhz)
+                
+                # Optionally set modulation mode
+                recommended_mode = band_info.get('mode', 'FM')
+                if recommended_mode in ['FM', 'AM', 'USB', 'LSB']:
+                    self.mod_combo.setCurrentText(recommended_mode)
+                elif recommended_mode == 'WFM':
+                    self.mod_combo.setCurrentText('FM')  # Use FM for wideband
+                
+                # Show info
+                desc = band_info.get('description', band_name)
+                freq_range = f"{band_info['start']/1e6:.3f} - {band_info['end']/1e6:.3f} MHz"
+                self.statusBar().showMessage(f'{desc} | {freq_range} | Mode: {recommended_mode}')
             
         def on_sample_rate_changed(self, value):
             """Handle sample rate change"""
