@@ -301,6 +301,13 @@
         
         <div class="controls">
             <div class="control-group">
+                <label for="band-select">Quick Band Navigation</label>
+                <select id="band-select">
+                    <option value="" selected>-- Select Band --</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
                 <label for="frequency">Center Frequency (MHz)</label>
                 <input type="number" id="frequency" value="100" min="24" max="1766" step="1">
             </div>
@@ -400,17 +407,87 @@
         // Initialize Socket.IO connection
         const socket = io();
         
+        // Initialize Web Audio API for audio playback
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioContext;
+        }
+        
+        // Handle incoming audio data
+        socket.on('audio_data', function(data) {
+            if (!initAudioContext()) return;
+            
+            try {
+                // Decode base64 audio data
+                const audioData = atob(data.data);
+                const audioArray = new Float32Array(audioData.length / 4);
+                
+                // Convert bytes to float32 array
+                const dataView = new DataView(new ArrayBuffer(audioData.length));
+                for (let i = 0; i < audioData.length; i++) {
+                    dataView.setUint8(i, audioData.charCodeAt(i));
+                }
+                
+                for (let i = 0; i < audioArray.length; i++) {
+                    audioArray[i] = dataView.getFloat32(i * 4, true);
+                }
+                
+                // Create audio buffer
+                const audioBuffer = audioContext.createBuffer(1, audioArray.length, data.sample_rate);
+                audioBuffer.getChannelData(0).set(audioArray);
+                
+                // Create buffer source and play
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start();
+                
+            } catch (err) {
+                console.error('Error playing audio:', err);
+            }
+        });
+        
         // Connection status
         socket.on('connect', function() {
             document.getElementById('connection-status').textContent = 'Connected';
             document.getElementById('connection-indicator').classList.add('active');
             checkStatus();
+            // Request band list on connection
+            socket.emit('get_bands');
         });
         
         socket.on('disconnect', function() {
             document.getElementById('connection-status').textContent = 'Disconnected';
             document.getElementById('connection-indicator').classList.remove('active');
             document.getElementById('connection-indicator').classList.add('error');
+        });
+        
+        // Receive band list
+        socket.on('bands_list', function(data) {
+            const bandSelect = document.getElementById('band-select');
+            // Clear existing options except first
+            while (bandSelect.options.length > 1) {
+                bandSelect.remove(1);
+            }
+            // Add all bands
+            data.bands.forEach(function(band) {
+                const option = document.createElement('option');
+                option.value = band;
+                option.textContent = band;
+                bandSelect.appendChild(option);
+            });
+        });
+        
+        // Handle band change from server
+        socket.on('band_changed', function(data) {
+            document.getElementById('frequency').value = data.frequency.toFixed(3);
+            document.getElementById('modulation').value = data.modulation;
         });
         
         // Status updates
@@ -436,6 +513,14 @@
         }
         
         // Event listeners for controls
+        document.getElementById('band-select').addEventListener('change', function() {
+            if (this.value) {
+                socket.emit('set_band', { band: this.value });
+                // Reset to default after selection
+                setTimeout(() => { this.value = ''; }, 500);
+            }
+        });
+        
         document.getElementById('frequency').addEventListener('change', function() {
             socket.emit('set_frequency', { frequency: this.value });
         });

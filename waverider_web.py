@@ -42,6 +42,15 @@ class WaveRiderWebApp:
         self.update_interval = 0.05  # 50ms
         self.running = False
         
+        # Audio processing
+        self.audio_enabled = False
+        self.modulation_mode = 'FM'
+        self.audio_rate = 48000
+        self.demodulator = FMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+        
+        # Waterfall settings
+        self.waterfall_settings = WaterfallSettings()
+        
         # Initialize components
         self.signal_source = SignalGenerator(self.sample_rate, self.center_freq)
         self.meshtastic_detector = MeshtasticDetector()
@@ -133,6 +142,59 @@ class WaveRiderWebApp:
                 self.sdr_device.set_center_freq(self.center_freq)
             
             emit('status', {'message': f'Frequency set to {freq} MHz'})
+        
+        @self.socketio.on('set_band')
+        def handle_set_band(data):
+            """Set frequency band from band plan"""
+            band_name = data.get('band', '')
+            band_info = BandPlan.get_band_info(band_name)
+            
+            if band_info:
+                # Set center frequency
+                center_freq_mhz = band_info['center'] / 1e6
+                self.center_freq = band_info['center']
+                self.signal_source.center_freq = self.center_freq
+                
+                # Update SDR device if connected
+                if self.use_real_sdr and self.sdr_device.is_connected:
+                    self.sdr_device.set_center_freq(self.center_freq)
+                
+                # Set recommended modulation mode
+                recommended_mode = band_info.get('mode', 'FM')
+                if recommended_mode in ['FM', 'AM', 'USB', 'LSB']:
+                    self.modulation_mode = recommended_mode
+                    
+                    # Create appropriate demodulator
+                    if recommended_mode == 'FM':
+                        self.demodulator = FMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+                    elif recommended_mode == 'AM':
+                        self.demodulator = AMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+                    elif recommended_mode == 'USB':
+                        self.demodulator = SSBDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate, mode='USB')
+                    elif recommended_mode == 'LSB':
+                        self.demodulator = SSBDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate, mode='LSB')
+                elif recommended_mode == 'WFM':
+                    self.modulation_mode = 'FM'
+                    self.demodulator = FMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+                
+                # Notify client
+                desc = band_info.get('description', band_name)
+                freq_range = f"{band_info['start']/1e6:.3f} - {band_info['end']/1e6:.3f} MHz"
+                emit('status', {'message': f'{desc} | {freq_range} | Mode: {recommended_mode}'})
+                emit('band_changed', {
+                    'frequency': center_freq_mhz,
+                    'modulation': self.modulation_mode,
+                    'description': desc
+                })
+                
+                if self.audio_enabled:
+                    emit('audio_status', {'message': f'Audio: Ready ({self.modulation_mode})', 'color': 'blue'})
+            
+        @self.socketio.on('get_bands')
+        def handle_get_bands():
+            """Get list of all bands"""
+            bands = BandPlan.get_all_bands()
+            emit('bands_list', {'bands': bands})
             
         @self.socketio.on('set_sample_rate')
         def handle_set_sample_rate(data):
@@ -159,6 +221,77 @@ class WaveRiderWebApp:
             self.fft_size = size
             self.waterfall_data = np.zeros((self.waterfall_height, self.fft_size))
             emit('status', {'message': f'FFT size set to {size}'})
+        
+        @self.socketio.on('set_modulation')
+        def handle_set_modulation(data):
+            """Set modulation mode"""
+            mode = data.get('mode', 'FM')
+            self.modulation_mode = mode
+            
+            # Create appropriate demodulator
+            if mode == 'FM':
+                self.demodulator = FMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+            elif mode == 'AM':
+                self.demodulator = AMDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate)
+            elif mode == 'USB':
+                self.demodulator = SSBDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate, mode='USB')
+            elif mode == 'LSB':
+                self.demodulator = SSBDemodulator(sample_rate=self.sample_rate, audio_rate=self.audio_rate, mode='LSB')
+            
+            emit('status', {'message': f'Modulation set to {mode}'})
+            if self.audio_enabled:
+                emit('audio_status', {'message': f'Audio: Ready ({mode})', 'color': 'blue'})
+        
+        @self.socketio.on('set_audio_enable')
+        def handle_set_audio_enable(data):
+            """Enable/disable audio output"""
+            self.audio_enabled = data.get('enabled', False)
+            
+            if self.audio_enabled:
+                emit('audio_status', {'message': f'Audio: Ready ({self.modulation_mode})', 'color': 'blue'})
+                emit('status', {'message': 'Audio output enabled'})
+            else:
+                emit('audio_status', {'message': 'Audio: Disabled', 'color': 'gray'})
+                emit('status', {'message': 'Audio output disabled'})
+        
+        @self.socketio.on('set_squelch')
+        def handle_set_squelch(data):
+            """Set squelch threshold"""
+            threshold = float(data.get('threshold', -50))
+            self.demodulator.set_squelch(threshold)
+            emit('status', {'message': f'Squelch: {threshold} dB'})
+        
+        @self.socketio.on('set_rf_gain')
+        def handle_set_rf_gain(data):
+            """Set RF gain"""
+            gain = float(data.get('gain', 40))
+            if self.use_real_sdr and self.sdr_device.is_connected:
+                self.sdr_device.set_gain(gain / 10.0)
+            emit('status', {'message': f'RF Gain: {gain} dB'})
+        
+        @self.socketio.on('set_colormap')
+        def handle_set_colormap(data):
+            """Set waterfall colormap"""
+            colormap = data.get('colormap', 'viridis')
+            self.waterfall_settings.set_colormap(colormap)
+            emit('status', {'message': f'Colormap: {colormap}'})
+        
+        @self.socketio.on('set_waterfall_range')
+        def handle_set_waterfall_range(data):
+            """Set waterfall display range"""
+            min_db = float(data.get('min_db', -80))
+            max_db = float(data.get('max_db', 0))
+            self.waterfall_settings.set_range(min_db, max_db)
+            emit('status', {'message': f'Range: {min_db} to {max_db} dB'})
+        
+        @self.socketio.on('set_peak_hold')
+        def handle_set_peak_hold(data):
+            """Enable/disable peak hold"""
+            enabled = data.get('enabled', False)
+            self.waterfall_settings.peak_hold = enabled
+            if not enabled:
+                self.waterfall_settings.peak_buffer = None
+            emit('status', {'message': f'Peak hold {"enabled" if enabled else "disabled"}'})
         
         @self.socketio.on('scan_sdr_devices')
         def handle_scan_sdr_devices():
@@ -252,15 +385,48 @@ class WaveRiderWebApp:
                 # Compute FFT and convert to dB
                 fft_db = compute_fft_db(samples, self.fft_size)
                 
+                # Apply waterfall processing (contrast, brightness, peak hold)
+                fft_processed = self.waterfall_settings.apply_processing(fft_db)
+                
                 # Update waterfall
                 self.waterfall_data = np.roll(self.waterfall_data, 1, axis=0)
-                self.waterfall_data[0, :] = fft_db
+                self.waterfall_data[0, :] = fft_processed
                 
                 # Generate and send image
                 img_data = self.generate_waterfall_image()
                 img_b64 = base64.b64encode(img_data).decode('utf-8')
                 
                 self.socketio.emit('waterfall_update', {'image': img_b64})
+                
+                # Process audio if enabled
+                if self.audio_enabled:
+                    # Detect if signal is strong enough
+                    if self.demodulator.detect_signal(samples):
+                        # Demodulate to audio
+                        audio_samples = self.demodulator.demodulate(samples)
+                        
+                        # Convert to bytes and encode as base64
+                        audio_bytes = audio_samples.tobytes()
+                        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        
+                        # Send audio data to client
+                        self.socketio.emit('audio_data', {
+                            'data': audio_b64,
+                            'sample_rate': self.audio_rate,
+                            'channels': 1
+                        })
+                        
+                        # Update audio status
+                        self.socketio.emit('audio_status', {
+                            'message': f'Audio: Playing ({self.modulation_mode})',
+                            'color': 'green'
+                        })
+                    else:
+                        # No strong signal detected
+                        self.socketio.emit('audio_status', {
+                            'message': f'Audio: Waiting for signal ({self.modulation_mode})',
+                            'color': 'orange'
+                        })
                 
                 # Sleep for update interval
                 time.sleep(self.update_interval)
@@ -275,12 +441,13 @@ class WaveRiderWebApp:
             fig = Figure(figsize=(10, 6), dpi=80)
             ax = fig.add_subplot(111)
             
-            # Create waterfall plot
+            # Create waterfall plot with current settings
             im = ax.imshow(self.waterfall_data, 
                           aspect='auto', 
-                          cmap='viridis',
+                          cmap=self.waterfall_settings.colormap,
                           interpolation='bilinear',
-                          vmin=-80, vmax=0,
+                          vmin=self.waterfall_settings.min_db, 
+                          vmax=self.waterfall_settings.max_db,
                           extent=[0, self.fft_size, self.waterfall_height, 0])
             
             # Set labels

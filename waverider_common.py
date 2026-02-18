@@ -43,6 +43,10 @@ class SDRDevice:
         self.sample_rate = 2.4e6
         self.center_freq = 100e6
         self.gain = 'auto'
+        self.lna_gain = 0  # Low Noise Amplifier gain
+        self.vga_gain = 0  # Variable Gain Amplifier gain
+        self.if_gain = 0   # Intermediate Frequency gain
+        self.available_gains = []
         
     def detect_devices(self):
         """Detect available SDR devices
@@ -110,6 +114,12 @@ class SDRDevice:
                 self.device.sample_rate = self.sample_rate
                 self.device.center_freq = self.center_freq
                 self.device.gain = self.gain
+                
+                # Get available gains
+                try:
+                    self.available_gains = self.device.get_gains()
+                except:
+                    self.available_gains = []
                 
                 self.is_connected = True
                 return True
@@ -210,6 +220,52 @@ class SDRDevice:
                     self.device.setGain(SOAPY_SDR_RX, 0, float(gain))
             except Exception as e:
                 print(f"Error setting gain: {e}")
+    
+    def set_lna_gain(self, gain):
+        """Set LNA (Low Noise Amplifier) gain
+        
+        Args:
+            gain: LNA gain value (device-specific)
+        """
+        self.lna_gain = gain
+        # Note: RTL-SDR doesn't have separate LNA/VGA controls
+        # This is a placeholder for devices that support it
+        # For RTL-SDR, we use the combined gain setting
+        if self.device and self.is_connected:
+            try:
+                if hasattr(self.device, 'set_tuner_gain'):
+                    self.device.set_tuner_gain(gain)
+            except Exception as e:
+                print(f"Error setting LNA gain: {e}")
+    
+    def set_vga_gain(self, gain):
+        """Set VGA (Variable Gain Amplifier) gain
+        
+        Args:
+            gain: VGA gain value (device-specific)
+        """
+        self.vga_gain = gain
+        # Note: RTL-SDR doesn't have separate LNA/VGA controls
+        # This is a placeholder for devices that support it
+        if self.device and self.is_connected:
+            try:
+                if hasattr(self.device, 'set_if_gain'):
+                    self.device.set_if_gain(gain)
+            except Exception as e:
+                print(f"Error setting VGA gain: {e}")
+    
+    def get_gains(self):
+        """Get available gain values for the device
+        
+        Returns:
+            list: Available gain values in dB
+        """
+        if self.device and self.is_connected:
+            try:
+                return self.device.get_gains()
+            except:
+                return []
+        return self.available_gains
     
     def read_samples(self, num_samples):
         """Read IQ samples from the SDR device
