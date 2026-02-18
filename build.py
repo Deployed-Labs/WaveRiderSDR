@@ -41,15 +41,15 @@ SYMBOLS = {
 def print_banner():
     """Print build script banner"""
     print(f"{Colors.CYAN}")
-    print("╔═══════════════════════════════════════════════════╗")
-    print("║                                                   ║")
-    print("║          🌊  WAVERIDER SDR  🌊                   ║")
-    print("║                                                   ║")
-    print("║            Build Script                          ║")
-    print("║                                                   ║")
-    print(f"║   Platform: {platform.system():<37}║")
-    print("║                                                   ║")
-    print("╚═══════════════════════════════════════════════════╝")
+    print("=" * 55)
+    print()
+    print("            WAVERIDER SDR")
+    print()
+    print("            Build Script")
+    print()
+    print(f"   Platform: {platform.system()}")
+    print()
+    print("=" * 55)
     print(f"{Colors.RESET}")
 
 def print_step(message):
@@ -205,7 +205,7 @@ app = BUNDLE(
 )
 """
     
-    with open('waverider.spec', 'w') as f:
+    with open('waverider.spec', 'w', encoding='utf-8') as f:
         f.write(spec_content)
     
     print_success("Spec file created: waverider.spec")
@@ -320,7 +320,7 @@ See LICENSE file for details.
     
     dist_dir = Path('dist') / 'WaveRiderSDR'
     if dist_dir.exists():
-        with open(dist_dir / 'README.txt', 'w') as f:
+        with open(dist_dir / 'README.txt', 'w', encoding='utf-8') as f:
             f.write(readme_content)
         print_success("Distribution README created")
 
@@ -343,7 +343,7 @@ def create_launcher_scripts():
         }
         
         for filename, content in launchers.items():
-            with open(dist_dir / filename, 'w') as f:
+            with open(dist_dir / filename, 'w', encoding='utf-8') as f:
                 f.write(content)
     
     elif system in ['Linux', 'Darwin']:
@@ -355,7 +355,7 @@ def create_launcher_scripts():
         
         for filename, content in launchers.items():
             script_path = dist_dir / filename
-            with open(script_path, 'w') as f:
+            with open(script_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             script_path.chmod(0o755)  # Make executable
     
@@ -367,11 +367,9 @@ def print_completion():
     dist_dir = Path('dist') / 'WaveRiderSDR'
     
     print()
-    print(f"{Colors.GREEN}╔═══════════════════════════════════════════════════╗{Colors.RESET}")
-    print(f"{Colors.GREEN}║                                                   ║{Colors.RESET}")
-    print(f"{Colors.GREEN}║      ✓ Build completed successfully!             ║{Colors.RESET}")
-    print(f"{Colors.GREEN}║                                                   ║{Colors.RESET}")
-    print(f"{Colors.GREEN}╚═══════════════════════════════════════════════════╝{Colors.RESET}")
+    print(f"{Colors.GREEN}{'=' * 55}{Colors.RESET}")
+    print(f"{Colors.GREEN}   Build completed successfully!{Colors.RESET}")
+    print(f"{Colors.GREEN}{'=' * 55}{Colors.RESET}")
     print()
     print(f"{Colors.CYAN}Build Output:{Colors.RESET}")
     print(f"  Location: {dist_dir}")
