@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>WaveRider SDR - Cross-Platform Web Interface</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" 
+            integrity="sha384-IDrXfXPh5+d0ZZJzkSn9YN4KVRpGy92J7L5LyA9cOPWONWGXfZGQNDEOCQMqDRp+" 
+            crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 10px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        header h1 {
+            font-size: clamp(1.5rem, 5vw, 2.5rem);
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: clamp(0.9rem, 2vw, 1.1rem);
+            opacity: 0.9;
+        }
+        
+        .waterfall-container {
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        #waterfall {
+            width: 100%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: block;
+            background: #222;
+        }
+        
+        .controls {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .control-group {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+            font-size: 0.9rem;
+        }
+        
+        .control-group input,
+        .control-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        
+        .control-group input:focus,
+        .control-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .button-group {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 15px 30px;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .btn-start {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+        
+        .btn-start:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+        }
+        
+        .btn-stop {
+            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
+            color: white;
+        }
+        
+        .btn-stop:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(238, 9, 121, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary.active {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .status-bar {
+            padding: 15px 20px;
+            background: #2c3e50;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #95a5a6;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-indicator.active {
+            background: #2ecc71;
+        }
+        
+        .status-indicator.error {
+            background: #e74c3c;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .info-panel {
+            padding: 20px;
+            background: #ecf0f1;
+            border-top: 3px solid #667eea;
+        }
+        
+        .info-panel h3 {
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        .info-panel p {
+            color: #555;
+            line-height: 1.6;
+            font-size: 0.95rem;
+        }
+        
+        .device-info {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+            }
+            
+            .status-bar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+        
+        /* Mobile-specific optimizations */
+        @media (max-width: 480px) {
+            body {
+                padding: 5px;
+            }
+            
+            .container {
+                border-radius: 10px;
+            }
+            
+            header {
+                padding: 15px;
+            }
+            
+            .waterfall-container,
+            .controls,
+            .info-panel {
+                padding: 15px;
+            }
+        }
+        
+        /* Loading state */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 400px;
+            font-size: 1.2rem;
+            color: #666;
+        }
+        
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌊 WaveRider SDR</h1>
+            <p>Cross-Platform Software Defined Radio - Works on Desktop & Mobile</p>
+        </header>
+        
+        <div class="waterfall-container">
+            <img id="waterfall" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='400'%3E%3Crect width='800' height='400' fill='%23222'/%3E%3Ctext x='400' y='200' text-anchor='middle' fill='%23fff' font-size='20'%3EWaiting for data...%3C/text%3E%3C/svg%3E" alt="Waterfall Display">
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="band-select">Quick Band Navigation</label>
+                <select id="band-select">
+                    <option value="" selected>-- Select Band --</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="frequency">Center Frequency (MHz)</label>
+                <input type="number" id="frequency" value="100" min="24" max="1766" step="1">
+            </div>
+            
+            <div class="control-group">
+                <label for="sample-rate">Sample Rate</label>
+                <select id="sample-rate">
+                    <option value="2.4 MHz" selected>2.4 MHz</option>
+                    <option value="2.048 MHz">2.048 MHz</option>
+                    <option value="1.024 MHz">1.024 MHz</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="fft-size">FFT Size</label>
+                <select id="fft-size">
+                    <option value="512">512</option>
+                    <option value="1024" selected>1024</option>
+                    <option value="2048">2048</option>
+                    <option value="4096">4096</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="modulation">Modulation</label>
+                <select id="modulation">
+                    <option value="None" selected>None</option>
+                    <option value="AM">AM</option>
+                    <option value="FM">FM</option>
+                    <option value="USB">USB</option>
+                    <option value="LSB">LSB</option>
+                    <option value="CW">CW (Morse)</option>
+                </select>
+            </div>
+            
+            <div class="button-group">
+                <button id="morse-btn" class="btn-secondary" onclick="toggleMorse()">Enable Morse Decoder</button>
+            </div>
+            
+            <div class="button-group">
+                <button id="start-btn" class="btn-start" onclick="startAcquisition()">▶ Start</button>
+                <button id="stop-btn" class="btn-stop" onclick="stopAcquisition()">⏸ Stop</button>
+            </div>
+        </div>
+        
+        <!-- Morse code display area (initially hidden) -->
+        <div id="morse-display" style="display: none; padding: 20px; background: #f9f9f9; border-top: 2px solid #667eea;">
+            <h3 style="margin-bottom: 10px; color: #2c3e50;">Decoded Morse Code:</h3>
+            <div id="morse-text" style="padding: 15px; background: white; border: 2px solid #ddd; border-radius: 8px; min-height: 60px; font-family: monospace; font-size: 1.1rem; line-height: 1.6;">
+                <!-- Morse text will appear here -->
+            </div>
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-indicator" id="connection-indicator"></span>
+                <span id="connection-status">Connecting...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-indicator" id="device-indicator"></span>
+                <span id="device-status">Checking for devices...</span>
+            </div>
+            <div class="status-item">
+                <span id="message-status">Ready</span>
+            </div>
+        </div>
+        
+        <div class="info-panel">
+            <h3>📱 Cross-Platform Compatibility</h3>
+            <p>
+                This web-based version of WaveRider SDR works on any device with a modern web browser:
+                <strong>Desktop computers (Windows, macOS, Linux), smartphones (iOS, Android), 
+                and tablets</strong>. Simply open this page in your browser to start monitoring 
+                radio frequencies in real-time.
+            </p>
+            <div class="device-info" id="device-info">
+                <strong>Platform Detected:</strong> <span id="platform-info">Detecting...</span>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Platform detection
+        function detectPlatform() {
+            const ua = navigator.userAgent;
+            let platform = 'Unknown';
+            
+            if (/Windows/i.test(ua)) platform = 'Windows Desktop';
+            else if (/Mac/i.test(ua) && !/iPhone|iPad|iPod/.test(ua)) platform = 'macOS Desktop';
+            else if (/Linux/i.test(ua) && !/Android/.test(ua)) platform = 'Linux Desktop';
+            else if (/Android/i.test(ua)) platform = 'Android Mobile/Tablet';
+            else if (/iPhone|iPad|iPod/.test(ua)) platform = 'iOS Mobile/Tablet';
+            
+            document.getElementById('platform-info').textContent = platform;
+        }
+        
+        // Initialize Socket.IO connection
+        const socket = io();
+        
+        // Initialize Web Audio API for audio playback
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return audioContext;
+        }
+        
+        // Handle incoming audio data
+        socket.on('audio_data', function(data) {
+            if (!initAudioContext()) return;
+            
+            try {
+                // Decode base64 audio data
+                const audioData = atob(data.data);
+                const audioArray = new Float32Array(audioData.length / 4);
+                
+                // Convert bytes to float32 array
+                const dataView = new DataView(new ArrayBuffer(audioData.length));
+                for (let i = 0; i < audioData.length; i++) {
+                    dataView.setUint8(i, audioData.charCodeAt(i));
+                }
+                
+                for (let i = 0; i < audioArray.length; i++) {
+                    audioArray[i] = dataView.getFloat32(i * 4, true);
+                }
+                
+                // Create audio buffer
+                const audioBuffer = audioContext.createBuffer(1, audioArray.length, data.sample_rate);
+                audioBuffer.getChannelData(0).set(audioArray);
+                
+                // Create buffer source and play
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start();
+                
+            } catch (err) {
+                console.error('Error playing audio:', err);
+            }
+        });
+        
+        // Connection status
+        socket.on('connect', function() {
+            document.getElementById('connection-status').textContent = 'Connected';
+            document.getElementById('connection-indicator').classList.add('active');
+            checkStatus();
+            // Request band list on connection
+            socket.emit('get_bands');
+        });
+        
+        socket.on('disconnect', function() {
+            document.getElementById('connection-status').textContent = 'Disconnected';
+            document.getElementById('connection-indicator').classList.remove('active');
+            document.getElementById('connection-indicator').classList.add('error');
+        });
+        
+        // Receive band list
+        socket.on('bands_list', function(data) {
+            const bandSelect = document.getElementById('band-select');
+            // Clear existing options except first
+            while (bandSelect.options.length > 1) {
+                bandSelect.remove(1);
+            }
+            // Add all bands
+            data.bands.forEach(function(band) {
+                const option = document.createElement('option');
+                option.value = band;
+                option.textContent = band;
+                bandSelect.appendChild(option);
+            });
+        });
+        
+        // Handle band change from server
+        socket.on('band_changed', function(data) {
+            document.getElementById('frequency').value = data.frequency.toFixed(3);
+            document.getElementById('modulation').value = data.modulation;
+        });
+        
+        // Status updates
+        socket.on('status', function(data) {
+            document.getElementById('message-status').textContent = data.message;
+        });
+        
+        // Waterfall updates
+        socket.on('waterfall_update', function(data) {
+            const img = document.getElementById('waterfall');
+            img.src = 'data:image/png;base64,' + data.image;
+        });
+        
+        // Control functions
+        function startAcquisition() {
+            socket.emit('start');
+            document.getElementById('message-status').textContent = 'Starting...';
+        }
+        
+        function stopAcquisition() {
+            socket.emit('stop');
+            document.getElementById('message-status').textContent = 'Stopping...';
+        }
+        
+        // Event listeners for controls
+        document.getElementById('band-select').addEventListener('change', function() {
+            if (this.value) {
+                socket.emit('set_band', { band: this.value });
+                // Reset to default after selection
+                setTimeout(() => { this.value = ''; }, 500);
+            }
+        });
+        
+        document.getElementById('frequency').addEventListener('change', function() {
+            socket.emit('set_frequency', { frequency: this.value });
+        });
+        
+        document.getElementById('sample-rate').addEventListener('change', function() {
+            socket.emit('set_sample_rate', { rate: this.value });
+        });
+        
+        document.getElementById('fft-size').addEventListener('change', function() {
+            socket.emit('set_fft_size', { size: this.value });
+        });
+        
+        document.getElementById('modulation').addEventListener('change', function() {
+            socket.emit('set_modulation', { mode: this.value });
+        });
+        
+        // Morse decoder state
+        let morseEnabled = false;
+        
+        function toggleMorse() {
+            morseEnabled = !morseEnabled;
+            const morseBtn = document.getElementById('morse-btn');
+            const morseDisplay = document.getElementById('morse-display');
+            
+            if (morseEnabled) {
+                morseBtn.textContent = 'Disable Morse Decoder';
+                morseBtn.classList.add('active');
+                morseDisplay.style.display = 'block';
+                document.getElementById('morse-text').textContent = '';
+                
+                // Auto-set modulation to CW
+                document.getElementById('modulation').value = 'CW';
+                socket.emit('set_modulation', { mode: 'CW' });
+            } else {
+                morseBtn.textContent = 'Enable Morse Decoder';
+                morseBtn.classList.remove('active');
+                morseDisplay.style.display = 'none';
+            }
+            
+            socket.emit('toggle_morse', { enabled: morseEnabled });
+        }
+        
+        // Morse updates
+        socket.on('morse_update', function(data) {
+            const morseText = document.getElementById('morse-text');
+            morseText.textContent += data.text;
+            // Auto-scroll to bottom
+            morseText.scrollTop = morseText.scrollHeight;
+        });
+        
+        // Check device status
+        function checkStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const deviceStatus = document.getElementById('device-status');
+                    const deviceIndicator = document.getElementById('device-indicator');
+                    
+                    if (data.meshtastic_detected) {
+                        deviceStatus.textContent = 'Meshtastic Device Connected';
+                        deviceIndicator.classList.add('active');
+                    } else {
+                        deviceStatus.textContent = 'No Meshtastic Device';
+                        deviceIndicator.classList.remove('active');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error checking status:', err);
+                });
+        }
+        
+        // Initialize
+        detectPlatform();
+        
+        // Auto-start on load (optional)
+        window.addEventListener('load', function() {
+            setTimeout(startAcquisition, 1000);
+        });
+        
+        // Periodic status check
+        setInterval(checkStatus, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# WaveRider SDR - Python Dependencies
+# Requires Python 3.8 or higher
+
+# Core dependencies (required)
+numpy>=1.21.0
+matplotlib>=3.4.0
+scipy>=1.7.0
+pyserial>=3.5
+
+# Desktop GUI dependencies (optional - for desktop version only)
+PyQt5>=5.15.0
+
+# Web interface dependencies (optional - for web/mobile version)
+flask>=2.3.0
+flask-socketio>=5.3.0
+python-socketio>=5.9.0
+
+# SDR hardware support (optional)
+pyrtlsdr>=0.2.9
+
+# HackRF support via SoapySDR (optional)
+# Note: SoapySDR needs to be installed separately at the system level
+# For Ubuntu/Debian: sudo apt-get install python3-soapysdr soapysdr-module-hackrf
+# For macOS: brew install soapysdr hackrf
+# For Windows: Download from https://github.com/pothosware/SoapySDR/wiki
