@@ -41,15 +41,15 @@ SYMBOLS = {
 def print_banner():
     """Print build script banner"""
     print(f"{Colors.CYAN}")
-    print("╔═══════════════════════════════════════════════════╗")
-    print("║                                                   ║")
-    print("║            WAVERIDER SDR                          ║")
-    print("║                                                   ║")
-    print("║            Build Script                          ║")
-    print("║                                                   ║")
-    print(f"║   Platform: {platform.system():<37}║")
-    print("║                                                   ║")
-    print("╚═══════════════════════════════════════════════════╝")
+    print("=" * 55)
+    print()
+    print("            WAVERIDER SDR")
+    print()
+    print("            Build Script")
+    print()
+    print(f"   Platform: {platform.system()}")
+    print()
+    print("=" * 55)
     print(f"{Colors.RESET}")
 
 def print_step(message):
@@ -367,11 +367,11 @@ def print_completion():
     dist_dir = Path('dist') / 'WaveRiderSDR'
     
     print()
-    print(f"{Colors.GREEN}╔═══════════════════════════════════════════════════╗{Colors.RESET}")
-    print(f"{Colors.GREEN}║                                                   ║{Colors.RESET}")
-    print(f"{Colors.GREEN}║   Build completed successfully!                   ║{Colors.RESET}")
-    print(f"{Colors.GREEN}║                                                   ║{Colors.RESET}")
-    print(f"{Colors.GREEN}╚═══════════════════════════════════════════════════╝{Colors.RESET}")
+    print(f"{Colors.GREEN}{'=' * 55}{Colors.RESET}")
+    print(f"{Colors.GREEN}{Colors.RESET}")
+    print(f"{Colors.GREEN}   Build completed successfully!{Colors.RESET}")
+    print(f"{Colors.GREEN}{Colors.RESET}")
+    print(f"{Colors.GREEN}{'=' * 55}{Colors.RESET}")
     print()
     print(f"{Colors.CYAN}Build Output:{Colors.RESET}")
     print(f"  Location: {dist_dir}")
