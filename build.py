@@ -293,7 +293,7 @@ Install SoapySDR and HackRF drivers for your platform.
 ## Documentation
 
 For full documentation, visit:
-https://github.com/1090mb/WaveRiderSDR
+https://github.com/Deployed-Labs/WaveRiderSDR
 
 ## License
 

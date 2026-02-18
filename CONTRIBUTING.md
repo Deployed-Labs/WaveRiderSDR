@@ -384,8 +384,8 @@ Releases are managed by maintainers:
 ## Questions?
 
 Don't hesitate to ask questions! We're here to help:
-- Open a [GitHub Discussion](https://github.com/1090mb/WaveRiderSDR/discussions)
-- Check existing [Issues](https://github.com/1090mb/WaveRiderSDR/issues)
+- Open a [GitHub Discussion](https://github.com/Deployed-Labs/WaveRiderSDR/discussions)
+- Check existing [Issues](https://github.com/Deployed-Labs/WaveRiderSDR/issues)
 - Read the [Documentation](README.md)
 
 ---

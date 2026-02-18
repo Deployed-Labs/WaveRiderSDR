@@ -44,10 +44,10 @@ setup(
     description='Universal Cross-Platform SDR Application with Desktop and Web Interfaces',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://github.com/1090mb/WaveRiderSDR',
+    url='https://github.com/Deployed-Labs/WaveRiderSDR',
     project_urls={
-        'Bug Reports': 'https://github.com/1090mb/WaveRiderSDR/issues',
-        'Source': 'https://github.com/1090mb/WaveRiderSDR',
+        'Bug Reports': 'https://github.com/Deployed-Labs/WaveRiderSDR/issues',
+        'Source': 'https://github.com/Deployed-Labs/WaveRiderSDR',
     },
     
     # Package configuration

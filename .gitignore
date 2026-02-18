@@ -109,3 +109,6 @@ waverider.ps1
 # PyInstaller
 *.spec
 *.manifest
+
+# GitHub Actions
+artifacts/

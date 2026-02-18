@@ -6,8 +6,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/1090mb/WaveRiderSDR)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/1090mb/WaveRiderSDR/pulls)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/Deployed-Labs/WaveRiderSDR)
+[![Build and Release](https://github.com/Deployed-Labs/WaveRiderSDR/actions/workflows/release.yml/badge.svg)](https://github.com/Deployed-Labs/WaveRiderSDR/actions/workflows/release.yml)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Deployed-Labs/WaveRiderSDR/pulls)
 
 **The only SDR with full features, rolling updates, and universal cross-platform compatibility.**
 
@@ -78,7 +79,7 @@ Choose your platform and run the appropriate installation script:
 
 #### 🐧 Linux / 🍎 macOS
 ```bash
-curl -fsSL https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.sh | bash
 ```
 or download and run:
 ```bash
@@ -104,7 +105,7 @@ If you prefer to install manually:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/1090mb/WaveRiderSDR.git
+git clone https://github.com/Deployed-Labs/WaveRiderSDR.git
 cd WaveRiderSDR
 
 # 2. Install dependencies
@@ -118,7 +119,7 @@ python run.py
 
 Download the latest release for your platform:
 
-1. Go to [Releases](https://github.com/1090mb/WaveRiderSDR/releases)
+1. Go to [Releases](https://github.com/Deployed-Labs/WaveRiderSDR/releases)
 2. Download the appropriate file:
    - **Windows**: `WaveRiderSDR-Windows.zip`
    - **macOS**: `WaveRiderSDR-macOS.zip`
@@ -160,12 +161,12 @@ The automated installers handle everything for you:
 
 ```bash
 # Download and run installer
-wget https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh
+wget https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.sh
 chmod +x install.sh
 ./install.sh
 
 # Or one-liner:
-curl -fsSL https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.sh | bash
 ```
 
 **What it does:**
@@ -190,12 +191,12 @@ curl -fsSL https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh
 
 ```bash
 # Download and run installer
-curl -O https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh
+curl -O https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.sh
 chmod +x install.sh
 ./install.sh
 
 # Or one-liner:
-curl -fsSL https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.sh | bash
 ```
 
 **What it does:**
@@ -217,7 +218,7 @@ curl -fsSL https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.sh
 **Method 1: PowerShell (Recommended)**
 ```powershell
 # Download installer
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.ps1" -OutFile "install.ps1"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.ps1" -OutFile "install.ps1"
 
 # Run installer
 powershell -ExecutionPolicy Bypass -File install.ps1
@@ -226,7 +227,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 **Method 2: Batch File**
 ```cmd
 # Download installer
-curl -O https://raw.githubusercontent.com/1090mb/WaveRiderSDR/main/install.bat
+curl -O https://raw.githubusercontent.com/Deployed-Labs/WaveRiderSDR/main/install.bat
 
 # Run installer
 install.bat
@@ -250,7 +251,7 @@ install.bat
 
 #### Option 2: Pre-Built Executables (No Python Required) 🎁
 
-Download ready-to-use executables from the [Releases page](https://github.com/1090mb/WaveRiderSDR/releases):
+Download ready-to-use executables from the [Releases page](https://github.com/Deployed-Labs/WaveRiderSDR/releases):
 
 | Platform | File | Instructions |
 |----------|------|--------------|
@@ -268,7 +269,7 @@ Download ready-to-use executables from the [Releases page](https://github.com/10
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/1090mb/WaveRiderSDR.git
+git clone https://github.com/Deployed-Labs/WaveRiderSDR.git
 cd WaveRiderSDR
 
 # 2. Install core dependencies
@@ -735,7 +736,7 @@ python build.py
 **Distribution:**
 1. Test the executable
 2. Create archive (zip/tar.gz)
-3. Upload to [Releases](https://github.com/1090mb/WaveRiderSDR/releases)
+3. Upload to [Releases](https://github.com/Deployed-Labs/WaveRiderSDR/releases)
 
 ---
 
@@ -921,8 +922,8 @@ brew install pyqt5
 5. 📋 What you expected vs. what happened
 
 **Where to get help:**
-- 🐛 [GitHub Issues](https://github.com/1090mb/WaveRiderSDR/issues) - Bug reports
-- 💬 [Discussions](https://github.com/1090mb/WaveRiderSDR/discussions) - Questions & ideas
+- 🐛 [GitHub Issues](https://github.com/Deployed-Labs/WaveRiderSDR/issues) - Bug reports
+- 💬 [Discussions](https://github.com/Deployed-Labs/WaveRiderSDR/discussions) - Questions & ideas
 - 📧 Email: Check GitHub profile for contact
 
 ---
@@ -1184,8 +1185,8 @@ See [LICENSE](LICENSE) file for full details.
 ### Getting Help
 
 1. **📖 Documentation**: Read this README and [PLATFORM_GUIDE.md](PLATFORM_GUIDE.md)
-2. **🐛 Bug Reports**: [GitHub Issues](https://github.com/1090mb/WaveRiderSDR/issues)
-3. **💬 Discussions**: [GitHub Discussions](https://github.com/1090mb/WaveRiderSDR/discussions)
+2. **🐛 Bug Reports**: [GitHub Issues](https://github.com/Deployed-Labs/WaveRiderSDR/issues)
+3. **💬 Discussions**: [GitHub Discussions](https://github.com/Deployed-Labs/WaveRiderSDR/discussions)
 4. **⭐ Star the Project**: Show your support!
 
 ### Stay Updated
