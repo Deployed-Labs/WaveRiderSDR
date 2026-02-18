@@ -734,9 +734,26 @@ python build.py
 - **Linux**: `dist/WaveRiderSDR/WaveRiderSDR`
 
 **Distribution:**
+
+Releases are automatically created via GitHub Actions when a new version tag is pushed:
+
+```bash
+# Create and push a new version tag
+git tag -a v1.0.0 -m "Release version 1.0.0"
+git push origin v1.0.0
+```
+
+This will trigger the build workflow which:
+1. Builds executables for Windows, macOS, and Linux
+2. Creates archives for each platform
+3. Automatically creates a GitHub release with all artifacts attached
+
+Alternatively, you can manually trigger the workflow from the Actions tab for testing.
+
+For local builds:
 1. Test the executable
 2. Create archive (zip/tar.gz)
-3. Upload to [Releases](https://github.com/Deployed-Labs/WaveRiderSDR/releases)
+3. Use the automated release workflow as described above
 
 ---
 
