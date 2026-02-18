@@ -20,6 +20,24 @@ class Colors:
     RESET = '\033[0m'
     BOLD = '\033[1m'
 
+def supports_utf8():
+    """Check if the current console supports UTF-8 encoding"""
+    try:
+        # Try to encode Unicode characters
+        '▶✓⚠✗'.encode(sys.stdout.encoding or 'utf-8')
+        return True
+    except (UnicodeEncodeError, AttributeError):
+        return False
+
+# Determine which symbols to use based on UTF-8 support
+USE_UTF8 = supports_utf8()
+SYMBOLS = {
+    'step': '▶' if USE_UTF8 else '>',
+    'success': '✓' if USE_UTF8 else 'OK',
+    'warning': '⚠' if USE_UTF8 else '!',
+    'error': '✗' if USE_UTF8 else 'X'
+}
+
 def print_banner():
     """Print build script banner"""
     print(f"{Colors.CYAN}")
@@ -36,19 +54,19 @@ def print_banner():
 
 def print_step(message):
     """Print step message"""
-    print(f"{Colors.BLUE}▶{Colors.RESET} {message}")
+    print(f"{Colors.BLUE}{SYMBOLS['step']}{Colors.RESET} {message}")
 
 def print_success(message):
     """Print success message"""
-    print(f"{Colors.GREEN}✓{Colors.RESET} {message}")
+    print(f"{Colors.GREEN}{SYMBOLS['success']}{Colors.RESET} {message}")
 
 def print_warning(message):
     """Print warning message"""
-    print(f"{Colors.YELLOW}⚠{Colors.RESET} {message}")
+    print(f"{Colors.YELLOW}{SYMBOLS['warning']}{Colors.RESET} {message}")
 
 def print_error(message):
     """Print error message"""
-    print(f"{Colors.RED}✗{Colors.RESET} {message}")
+    print(f"{Colors.RED}{SYMBOLS['error']}{Colors.RESET} {message}")
 
 def check_pyinstaller():
     """Check if PyInstaller is installed"""
