@@ -143,6 +143,20 @@
             box-shadow: 0 5px 15px rgba(238, 9, 121, 0.4);
         }
         
+        .btn-secondary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary.active {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
         button:active {
             transform: translateY(0);
         }
@@ -320,68 +334,30 @@
             <div class="control-group">
                 <label for="modulation">Modulation</label>
                 <select id="modulation">
-                    <option value="FM" selected>FM (Frequency)</option>
-                    <option value="AM">AM (Amplitude)</option>
-                    <option value="USB">USB (Upper Sideband)</option>
-                    <option value="LSB">LSB (Lower Sideband)</option>
+                    <option value="None" selected>None</option>
+                    <option value="AM">AM</option>
+                    <option value="FM">FM</option>
+                    <option value="USB">USB</option>
+                    <option value="LSB">LSB</option>
+                    <option value="CW">CW (Morse)</option>
                 </select>
             </div>
             
-            <div class="control-group">
-                <label>
-                    <input type="checkbox" id="audio-enable" style="width: auto; margin-right: 8px;">
-                    Enable Audio Output
-                </label>
-                <div id="audio-status" style="margin-top: 5px; font-size: 0.85rem; color: gray;">
-                    Audio: Disabled
-                </div>
-            </div>
-            
-            <div class="control-group">
-                <label for="squelch">Squelch (dB): <span id="squelch-value">-50</span></label>
-                <input type="range" id="squelch" min="-100" max="0" value="-50" step="1">
-            </div>
-            
-            <div class="control-group">
-                <label for="rf-gain">RF Gain (dB): <span id="rf-gain-value">40</span></label>
-                <input type="range" id="rf-gain" min="0" max="50" value="40" step="1">
-            </div>
-            
-            <div class="control-group">
-                <label for="colormap">Colormap</label>
-                <select id="colormap">
-                    <option value="viridis" selected>Viridis</option>
-                    <option value="plasma">Plasma</option>
-                    <option value="inferno">Inferno</option>
-                    <option value="magma">Magma</option>
-                    <option value="hot">Hot</option>
-                    <option value="cool">Cool</option>
-                    <option value="rainbow">Rainbow</option>
-                    <option value="grayscale">Grayscale</option>
-                    <option value="turbo">Turbo</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label for="min-db">Min dB</label>
-                <input type="number" id="min-db" value="-80" min="-120" max="-10" step="5">
-            </div>
-            
-            <div class="control-group">
-                <label for="max-db">Max dB</label>
-                <input type="number" id="max-db" value="0" min="-10" max="20" step="5">
-            </div>
-            
-            <div class="control-group">
-                <label>
-                    <input type="checkbox" id="peak-hold" style="width: auto; margin-right: 8px;">
-                    Peak Hold
-                </label>
+            <div class="button-group">
+                <button id="morse-btn" class="btn-secondary" onclick="toggleMorse()">Enable Morse Decoder</button>
             </div>
             
             <div class="button-group">
                 <button id="start-btn" class="btn-start" onclick="startAcquisition()">▶ Start</button>
                 <button id="stop-btn" class="btn-stop" onclick="stopAcquisition()">⏸ Stop</button>
+            </div>
+        </div>
+        
+        <!-- Morse code display area (initially hidden) -->
+        <div id="morse-display" style="display: none; padding: 20px; background: #f9f9f9; border-top: 2px solid #667eea;">
+            <h3 style="margin-bottom: 10px; color: #2c3e50;">Decoded Morse Code:</h3>
+            <div id="morse-text" style="padding: 15px; background: white; border: 2px solid #ddd; border-radius: 8px; min-height: 60px; font-family: monospace; font-size: 1.1rem; line-height: 1.6;">
+                <!-- Morse text will appear here -->
             </div>
         </div>
         
@@ -561,45 +537,38 @@
             socket.emit('set_modulation', { mode: this.value });
         });
         
-        document.getElementById('audio-enable').addEventListener('change', function() {
-            socket.emit('set_audio_enable', { enabled: this.checked });
-        });
+        // Morse decoder state
+        let morseEnabled = false;
         
-        document.getElementById('squelch').addEventListener('input', function() {
-            document.getElementById('squelch-value').textContent = this.value;
-            socket.emit('set_squelch', { threshold: parseFloat(this.value) });
-        });
+        function toggleMorse() {
+            morseEnabled = !morseEnabled;
+            const morseBtn = document.getElementById('morse-btn');
+            const morseDisplay = document.getElementById('morse-display');
+            
+            if (morseEnabled) {
+                morseBtn.textContent = 'Disable Morse Decoder';
+                morseBtn.classList.add('active');
+                morseDisplay.style.display = 'block';
+                document.getElementById('morse-text').textContent = '';
+                
+                // Auto-set modulation to CW
+                document.getElementById('modulation').value = 'CW';
+                socket.emit('set_modulation', { mode: 'CW' });
+            } else {
+                morseBtn.textContent = 'Enable Morse Decoder';
+                morseBtn.classList.remove('active');
+                morseDisplay.style.display = 'none';
+            }
+            
+            socket.emit('toggle_morse', { enabled: morseEnabled });
+        }
         
-        document.getElementById('rf-gain').addEventListener('input', function() {
-            document.getElementById('rf-gain-value').textContent = this.value;
-            socket.emit('set_rf_gain', { gain: parseFloat(this.value) });
-        });
-        
-        document.getElementById('colormap').addEventListener('change', function() {
-            socket.emit('set_colormap', { colormap: this.value });
-        });
-        
-        document.getElementById('min-db').addEventListener('change', function() {
-            const minDb = parseFloat(this.value);
-            const maxDb = parseFloat(document.getElementById('max-db').value);
-            socket.emit('set_waterfall_range', { min_db: minDb, max_db: maxDb });
-        });
-        
-        document.getElementById('max-db').addEventListener('change', function() {
-            const minDb = parseFloat(document.getElementById('min-db').value);
-            const maxDb = parseFloat(this.value);
-            socket.emit('set_waterfall_range', { min_db: minDb, max_db: maxDb });
-        });
-        
-        document.getElementById('peak-hold').addEventListener('change', function() {
-            socket.emit('set_peak_hold', { enabled: this.checked });
-        });
-        
-        // Audio status updates
-        socket.on('audio_status', function(data) {
-            const status = document.getElementById('audio-status');
-            status.textContent = data.message;
-            status.style.color = data.color || 'gray';
+        // Morse updates
+        socket.on('morse_update', function(data) {
+            const morseText = document.getElementById('morse-text');
+            morseText.textContent += data.text;
+            // Auto-scroll to bottom
+            morseText.scrollTop = morseText.scrollHeight;
         });
         
         // Check device status

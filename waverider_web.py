@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 # Import common utilities
-from waverider_common import (MeshtasticDetector, SignalGenerator, compute_fft_db, SDRDevice, 
-                             RTLSDR_AVAILABLE, AudioDemodulator, FMDemodulator, AMDemodulator, 
-                             SSBDemodulator, AUDIO_AVAILABLE, WaterfallSettings, BandPlan)
+from waverider_common import (MeshtasticDetector, SignalGenerator, compute_fft_db, 
+                               SDRDevice, RTLSDR_AVAILABLE, HACKRF_AVAILABLE,
+                               Demodulator, MorseDecoder)
 
 
 class WaveRiderWebApp:
@@ -58,6 +58,13 @@ class WaveRiderWebApp:
         self.use_real_sdr = False
         self.waterfall_data = np.zeros((self.waterfall_height, self.fft_size))
         
+        # Initialize demodulator and Morse decoder
+        self.demodulator = Demodulator(self.sample_rate)
+        self.morse_decoder = MorseDecoder(self.sample_rate)
+        self.modulation_mode = 'None'
+        self.morse_mode_enabled = False
+        self.morse_text = ""
+        
         # Setup routes
         self.setup_routes()
         self.setup_socketio_events()
@@ -74,7 +81,7 @@ class WaveRiderWebApp:
         def get_status():
             """Get current status"""
             devices = self.meshtastic_detector.detect_devices()
-            sdr_devices = self.sdr_device.detect_devices() if RTLSDR_AVAILABLE else []
+            sdr_devices = self.sdr_device.detect_devices() if RTLSDR_AVAILABLE or HACKRF_AVAILABLE else []
             return jsonify({
                 'running': self.running,
                 'sample_rate': self.sample_rate,
@@ -86,7 +93,11 @@ class WaveRiderWebApp:
                 'sdr_devices': sdr_devices,
                 'sdr_connected': self.sdr_device.is_connected,
                 'use_real_sdr': self.use_real_sdr,
-                'rtlsdr_available': RTLSDR_AVAILABLE
+                'rtlsdr_available': RTLSDR_AVAILABLE,
+                'hackrf_available': HACKRF_AVAILABLE,
+                'modulation_mode': self.modulation_mode,
+                'morse_enabled': self.morse_mode_enabled,
+                'morse_text': self.morse_text
             })
         
         @self.app.route('/api/waterfall_image')
@@ -285,10 +296,10 @@ class WaveRiderWebApp:
         @self.socketio.on('scan_sdr_devices')
         def handle_scan_sdr_devices():
             """Scan for SDR devices"""
-            if not RTLSDR_AVAILABLE:
+            if not RTLSDR_AVAILABLE and not HACKRF_AVAILABLE:
                 emit('sdr_devices', {
                     'devices': [],
-                    'error': 'RTL-SDR library not installed. Install with: pip install pyrtlsdr'
+                    'error': 'No SDR libraries installed. Install RTL-SDR with: pip install pyrtlsdr or HackRF via SoapySDR'
                 })
                 return
             
@@ -322,6 +333,31 @@ class WaveRiderWebApp:
                 self.sdr_device.disconnect()
             self.use_real_sdr = False
             emit('status', {'message': 'SDR device disconnected'})
+        
+        @self.socketio.on('set_modulation')
+        def handle_set_modulation(data):
+            """Set modulation mode"""
+            mode = data.get('mode', 'None')
+            self.modulation_mode = mode
+            self.demodulator = Demodulator(self.sample_rate)  # Reset demodulator
+            emit('status', {'message': f'Modulation set to {mode}'})
+        
+        @self.socketio.on('toggle_morse')
+        def handle_toggle_morse(data):
+            """Toggle Morse decoder"""
+            enabled = data.get('enabled', False)
+            self.morse_mode_enabled = enabled
+            
+            if enabled:
+                self.morse_decoder.reset()
+                self.morse_text = ""
+                # Automatically set to CW mode
+                if self.modulation_mode != 'CW':
+                    self.modulation_mode = 'CW'
+                    self.demodulator = Demodulator(self.sample_rate)
+                emit('status', {'message': 'Morse decoder enabled'})
+            else:
+                emit('status', {'message': 'Morse decoder disabled'})
     
     def update_loop(self):
         """Main update loop for signal processing"""
@@ -336,6 +372,15 @@ class WaveRiderWebApp:
                 else:
                     # Generate simulated samples
                     samples = self.signal_source.generate_samples(self.fft_size)
+                
+                # Apply demodulation if Morse mode is enabled (CW detection)
+                if self.morse_mode_enabled and self.modulation_mode == 'CW' and samples is not None:
+                    demod_signal = self.demodulator.demodulate_cw(samples)
+                    new_text = self.morse_decoder.process_samples(demod_signal)
+                    if new_text:
+                        self.morse_text += new_text
+                        # Emit Morse update
+                        self.socketio.emit('morse_update', {'text': new_text})
                 
                 # Compute FFT and convert to dB
                 fft_db = compute_fft_db(samples, self.fft_size)

@@ -89,3 +89,23 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Installer artifacts
+waverider
+waverider.bat
+waverider-web.bat
+waverider-desktop.bat
+waverider-web.sh
+waverider-desktop.sh
+waverider.ps1
+
+# Distribution archives
+*.zip
+*.tar.gz
+*.dmg
+*.deb
+*.rpm
+
+# PyInstaller
+*.spec
+*.manifest

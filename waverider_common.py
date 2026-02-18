@@ -19,154 +19,13 @@ try:
 except ImportError:
     RTLSDR_AVAILABLE = False
 
-# Check for audio output support
+# Check for HackRF support via SoapySDR
 try:
-    import sounddevice as sd
-    AUDIO_AVAILABLE = True
-    AUDIO_BACKEND = 'sounddevice'
+    import SoapySDR
+    from SoapySDR import SOAPY_SDR_RX, SOAPY_SDR_CF32
+    HACKRF_AVAILABLE = True
 except ImportError:
-    try:
-        import pyaudio
-        AUDIO_AVAILABLE = True
-        AUDIO_BACKEND = 'pyaudio'
-    except ImportError:
-        AUDIO_AVAILABLE = False
-        AUDIO_BACKEND = None
-
-from scipy import signal as scipy_signal
-
-
-class BandPlan:
-    """Comprehensive frequency band plan for radio navigation
-    
-    Includes amateur radio bands, broadcast bands, aviation, marine, and other
-    commonly used frequency allocations.
-    """
-    
-    # Comprehensive band plan with frequencies in Hz
-    BANDS = {
-        # AM Broadcast
-        'AM Broadcast': {'start': 530e3, 'end': 1700e3, 'center': 1000e3, 'mode': 'AM', 'description': 'AM Radio Broadcasting'},
-        
-        # Shortwave Broadcast Bands
-        'SW 120m': {'start': 2300e3, 'end': 2495e3, 'center': 2400e3, 'mode': 'AM', 'description': 'Shortwave 120m Band'},
-        'SW 90m': {'start': 3200e3, 'end': 3400e3, 'center': 3300e3, 'mode': 'AM', 'description': 'Shortwave 90m Band'},
-        'SW 75m': {'start': 3900e3, 'end': 4000e3, 'center': 3950e3, 'mode': 'AM', 'description': 'Shortwave 75m Band'},
-        'SW 60m': {'start': 4750e3, 'end': 5060e3, 'center': 4900e3, 'mode': 'AM', 'description': 'Shortwave 60m Band'},
-        'SW 49m': {'start': 5900e3, 'end': 6200e3, 'center': 6050e3, 'mode': 'AM', 'description': 'Shortwave 49m Band'},
-        'SW 41m': {'start': 7200e3, 'end': 7450e3, 'center': 7325e3, 'mode': 'AM', 'description': 'Shortwave 41m Band'},
-        'SW 31m': {'start': 9400e3, 'end': 9900e3, 'center': 9650e3, 'mode': 'AM', 'description': 'Shortwave 31m Band'},
-        'SW 25m': {'start': 11600e3, 'end': 12100e3, 'center': 11850e3, 'mode': 'AM', 'description': 'Shortwave 25m Band'},
-        'SW 22m': {'start': 13570e3, 'end': 13870e3, 'center': 13720e3, 'mode': 'AM', 'description': 'Shortwave 22m Band'},
-        'SW 19m': {'start': 15100e3, 'end': 15800e3, 'center': 15450e3, 'mode': 'AM', 'description': 'Shortwave 19m Band'},
-        'SW 16m': {'start': 17480e3, 'end': 17900e3, 'center': 17690e3, 'mode': 'AM', 'description': 'Shortwave 16m Band'},
-        'SW 13m': {'start': 21450e3, 'end': 21850e3, 'center': 21650e3, 'mode': 'AM', 'description': 'Shortwave 13m Band'},
-        'SW 11m': {'start': 25600e3, 'end': 26100e3, 'center': 25850e3, 'mode': 'AM', 'description': 'Shortwave 11m Band'},
-        
-        # Citizens Band (CB)
-        'CB Radio': {'start': 26.965e6, 'end': 27.405e6, 'center': 27.185e6, 'mode': 'AM', 'description': 'Citizens Band Radio'},
-        
-        # Amateur Radio Bands (HF)
-        '160m Ham': {'start': 1.8e6, 'end': 2.0e6, 'center': 1.9e6, 'mode': 'LSB', 'description': 'Amateur 160m Band'},
-        '80m Ham': {'start': 3.5e6, 'end': 4.0e6, 'center': 3.75e6, 'mode': 'LSB', 'description': 'Amateur 80m Band'},
-        '60m Ham': {'start': 5.3305e6, 'end': 5.4035e6, 'center': 5.357e6, 'mode': 'USB', 'description': 'Amateur 60m Band'},
-        '40m Ham': {'start': 7.0e6, 'end': 7.3e6, 'center': 7.15e6, 'mode': 'LSB', 'description': 'Amateur 40m Band'},
-        '30m Ham': {'start': 10.1e6, 'end': 10.15e6, 'center': 10.125e6, 'mode': 'USB', 'description': 'Amateur 30m Band'},
-        '20m Ham': {'start': 14.0e6, 'end': 14.35e6, 'center': 14.175e6, 'mode': 'USB', 'description': 'Amateur 20m Band'},
-        '17m Ham': {'start': 18.068e6, 'end': 18.168e6, 'center': 18.118e6, 'mode': 'USB', 'description': 'Amateur 17m Band'},
-        '15m Ham': {'start': 21.0e6, 'end': 21.45e6, 'center': 21.225e6, 'mode': 'USB', 'description': 'Amateur 15m Band'},
-        '12m Ham': {'start': 24.89e6, 'end': 24.99e6, 'center': 24.94e6, 'mode': 'USB', 'description': 'Amateur 12m Band'},
-        '10m Ham': {'start': 28.0e6, 'end': 29.7e6, 'center': 28.85e6, 'mode': 'USB', 'description': 'Amateur 10m Band'},
-        
-        # VHF/UHF Bands
-        'FM Broadcast': {'start': 87.5e6, 'end': 108e6, 'center': 98e6, 'mode': 'WFM', 'description': 'FM Radio Broadcasting'},
-        'Air Band': {'start': 108e6, 'end': 137e6, 'center': 120e6, 'mode': 'AM', 'description': 'Aviation Communication'},
-        '2m Ham': {'start': 144e6, 'end': 148e6, 'center': 146e6, 'mode': 'FM', 'description': 'Amateur 2m Band'},
-        'Marine VHF': {'start': 156e6, 'end': 162e6, 'center': 156.8e6, 'mode': 'FM', 'description': 'Marine Communication'},
-        'Weather Radio': {'start': 162.4e6, 'end': 162.55e6, 'center': 162.5e6, 'mode': 'FM', 'description': 'NOAA Weather Radio'},
-        'PMR446': {'start': 446e6, 'end': 446.2e6, 'center': 446.1e6, 'mode': 'FM', 'description': 'Personal Mobile Radio'},
-        '70cm Ham': {'start': 420e6, 'end': 450e6, 'center': 435e6, 'mode': 'FM', 'description': 'Amateur 70cm Band'},
-        'GMRS/FRS': {'start': 462e6, 'end': 467e6, 'center': 464.5e6, 'mode': 'FM', 'description': 'GMRS/FRS Family Radio'},
-        
-        # ISM Bands
-        'ISM 433': {'start': 433.05e6, 'end': 434.79e6, 'center': 433.92e6, 'mode': 'FM', 'description': 'ISM 433 MHz Band'},
-        'ISM 868': {'start': 863e6, 'end': 870e6, 'center': 868e6, 'mode': 'FM', 'description': 'ISM 868 MHz Band'},
-        'ISM 915': {'start': 902e6, 'end': 928e6, 'center': 915e6, 'mode': 'FM', 'description': 'ISM 915 MHz Band'},
-        
-        # Public Safety & Services
-        'Pagers': {'start': 929e6, 'end': 932e6, 'center': 930e6, 'mode': 'FM', 'description': 'Pager Services'},
-        'GSM-900': {'start': 890e6, 'end': 960e6, 'center': 925e6, 'mode': 'FM', 'description': 'GSM 900 MHz'},
-        'GSM-1800': {'start': 1710e6, 'end': 1880e6, 'center': 1800e6, 'mode': 'FM', 'description': 'GSM 1800 MHz'},
-        
-        # Satellite & Space
-        'L-Band Sat': {'start': 1530e6, 'end': 1559e6, 'center': 1545e6, 'mode': 'FM', 'description': 'L-Band Satellite'},
-        'GPS L1': {'start': 1575.42e6, 'end': 1575.42e6, 'center': 1575.42e6, 'mode': 'FM', 'description': 'GPS L1 Signal'},
-    }
-    
-    @classmethod
-    def get_all_bands(cls):
-        """Get list of all band names
-        
-        Returns:
-            list: Sorted list of band names
-        """
-        return sorted(cls.BANDS.keys())
-    
-    @classmethod
-    def get_band_info(cls, band_name):
-        """Get information about a specific band
-        
-        Args:
-            band_name: Name of the band
-            
-        Returns:
-            dict: Band information (start, end, center, mode, description)
-        """
-        return cls.BANDS.get(band_name, None)
-    
-    @classmethod
-    def find_band(cls, frequency):
-        """Find which band a frequency belongs to
-        
-        Args:
-            frequency: Frequency in Hz
-            
-        Returns:
-            str: Band name or None if not in any band
-        """
-        for band_name, info in cls.BANDS.items():
-            if info['start'] <= frequency <= info['end']:
-                return band_name
-        return None
-    
-    @classmethod
-    def get_bands_by_category(cls):
-        """Get bands organized by category
-        
-        Returns:
-            dict: Bands organized by category
-        """
-        categories = {
-            'Broadcast': [],
-            'Amateur Radio': [],
-            'Aviation/Marine': [],
-            'ISM/Unlicensed': [],
-            'Commercial': [],
-        }
-        
-        for band_name in cls.BANDS.keys():
-            if 'Ham' in band_name:
-                categories['Amateur Radio'].append(band_name)
-            elif 'Broadcast' in band_name or 'SW' in band_name or 'AM' in band_name or 'FM' in band_name:
-                categories['Broadcast'].append(band_name)
-            elif 'Air' in band_name or 'Marine' in band_name or 'Weather' in band_name:
-                categories['Aviation/Marine'].append(band_name)
-            elif 'ISM' in band_name or 'CB' in band_name or 'PMR' in band_name or 'GMRS' in band_name or 'FRS' in band_name:
-                categories['ISM/Unlicensed'].append(band_name)
-            else:
-                categories['Commercial'].append(band_name)
-        
-        return {k: v for k, v in categories.items() if v}  # Remove empty categories
+    HACKRF_AVAILABLE = False
 
 
 class SDRDevice:
@@ -215,6 +74,25 @@ class SDRDevice:
             except Exception as e:
                 print(f"Error detecting RTL-SDR devices: {e}")
         
+        # Check for HackRF devices via SoapySDR
+        if HACKRF_AVAILABLE:
+            try:
+                # Enumerate all SoapySDR devices
+                results = SoapySDR.Device.enumerate()
+                hackrf_count = 0
+                for result in results:
+                    # Check if this is a HackRF device
+                    if 'hackrf' in result.get('driver', '').lower():
+                        devices.append({
+                            'index': hackrf_count,
+                            'type': 'HackRF',
+                            'name': result.get('label', f'HackRF #{hackrf_count}'),
+                            'description': f"HackRF Device #{hackrf_count}: {result.get('serial', 'N/A')}"
+                        })
+                        hackrf_count += 1
+            except Exception as e:
+                print(f"Error detecting HackRF devices: {e}")
+        
         return devices
     
     def connect(self, device_index=0, device_type='RTL-SDR'):
@@ -245,6 +123,34 @@ class SDRDevice:
                 
                 self.is_connected = True
                 return True
+            elif device_type == 'HackRF' and HACKRF_AVAILABLE:
+                # Connect to HackRF via SoapySDR
+                results = SoapySDR.Device.enumerate()
+                hackrf_devices = [r for r in results if 'hackrf' in r.get('driver', '').lower()]
+                
+                if device_index < len(hackrf_devices):
+                    self.device = SoapySDR.Device(hackrf_devices[device_index])
+                    self.device_type = 'HackRF'
+                    
+                    # Setup RX stream
+                    self.hackrf_stream = self.device.setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32)
+                    
+                    # Configure device with default parameters
+                    self.device.setSampleRate(SOAPY_SDR_RX, 0, self.sample_rate)
+                    self.device.setFrequency(SOAPY_SDR_RX, 0, self.center_freq)
+                    
+                    # Set gain (HackRF has different gain controls)
+                    if self.gain != 'auto':
+                        self.device.setGain(SOAPY_SDR_RX, 0, float(self.gain))
+                    
+                    # Activate the stream
+                    self.device.activateStream(self.hackrf_stream)
+                    
+                    self.is_connected = True
+                    return True
+                else:
+                    print(f"HackRF device index {device_index} not found")
+                    return False
             else:
                 print(f"Device type {device_type} not supported or library not available")
                 return False
@@ -258,6 +164,9 @@ class SDRDevice:
         """Disconnect from the SDR device"""
         if self.device:
             try:
+                if self.device_type == 'HackRF' and hasattr(self, 'hackrf_stream'):
+                    self.device.deactivateStream(self.hackrf_stream)
+                    self.device.closeStream(self.hackrf_stream)
                 self.device.close()
             except Exception as e:
                 print(f"Error closing SDR device: {e}")
@@ -273,7 +182,10 @@ class SDRDevice:
         self.sample_rate = rate
         if self.device and self.is_connected:
             try:
-                self.device.sample_rate = rate
+                if self.device_type == 'RTL-SDR':
+                    self.device.sample_rate = rate
+                elif self.device_type == 'HackRF':
+                    self.device.setSampleRate(SOAPY_SDR_RX, 0, rate)
             except Exception as e:
                 print(f"Error setting sample rate: {e}")
     
@@ -286,7 +198,10 @@ class SDRDevice:
         self.center_freq = freq
         if self.device and self.is_connected:
             try:
-                self.device.center_freq = freq
+                if self.device_type == 'RTL-SDR':
+                    self.device.center_freq = freq
+                elif self.device_type == 'HackRF':
+                    self.device.setFrequency(SOAPY_SDR_RX, 0, freq)
             except Exception as e:
                 print(f"Error setting center frequency: {e}")
     
@@ -299,7 +214,10 @@ class SDRDevice:
         self.gain = gain
         if self.device and self.is_connected:
             try:
-                self.device.gain = gain
+                if self.device_type == 'RTL-SDR':
+                    self.device.gain = gain
+                elif self.device_type == 'HackRF' and gain != 'auto':
+                    self.device.setGain(SOAPY_SDR_RX, 0, float(gain))
             except Exception as e:
                 print(f"Error setting gain: {e}")
     
@@ -362,8 +280,17 @@ class SDRDevice:
             return None
         
         try:
-            samples = self.device.read_samples(num_samples)
-            return samples
+            if self.device_type == 'RTL-SDR':
+                samples = self.device.read_samples(num_samples)
+                return samples
+            elif self.device_type == 'HackRF':
+                # Read samples from HackRF via SoapySDR
+                buff = np.zeros(num_samples, dtype=np.complex64)
+                sr = self.device.readStream(self.hackrf_stream, [buff], num_samples)
+                if sr.ret > 0:
+                    return buff[:sr.ret]
+                else:
+                    return None
         except Exception as e:
             print(f"Error reading samples from SDR: {e}")
             return None
@@ -602,508 +529,207 @@ def compute_fft_db(samples, fft_size=None):
     return magnitude_db
 
 
-class WaterfallSettings:
-    """Settings and configuration for waterfall display
+class Demodulator:
+    """Demodulate various modulation schemes (AM, FM, SSB, CW)
     
-    Manages color schemes, intensity, contrast, and other waterfall parameters
+    This class provides demodulation capabilities for common analog modulation types.
     """
     
-    COLORMAPS = {
-        'viridis': 'viridis',
-        'plasma': 'plasma',
-        'inferno': 'inferno',
-        'magma': 'magma',
-        'hot': 'hot',
-        'cool': 'cool',
-        'rainbow': 'jet',
-        'grayscale': 'gray',
-        'turbo': 'turbo',
-        'wb': 'WB'  # White-Blue (SDR++ style)
-    }
-    
-    def __init__(self):
-        """Initialize waterfall settings with defaults"""
-        self.colormap = 'viridis'
-        self.min_db = -80  # Minimum dB level (floor)
-        self.max_db = 0    # Maximum dB level (ceiling)
-        self.contrast = 1.0  # Contrast multiplier
-        self.brightness = 0.0  # Brightness offset
-        self.averaging = 1  # Number of frames to average (smoothing)
-        self.peak_hold = False  # Enable peak hold
-        self.peak_decay = 0.95  # Peak decay rate
-        self.waterfall_speed = 1  # Waterfall scroll speed multiplier
-        self.show_grid = True  # Show frequency grid
-        self.show_peak_marker = True  # Show peak frequency marker
-        
-        # Peak hold buffer
-        self.peak_buffer = None
-    
-    def set_colormap(self, colormap_name):
-        """Set colormap for waterfall
+    def __init__(self, sample_rate=2.4e6):
+        """Initialize demodulator
         
         Args:
-            colormap_name: Name of colormap from COLORMAPS
-        """
-        if colormap_name in self.COLORMAPS:
-            self.colormap = self.COLORMAPS[colormap_name]
-    
-    def set_range(self, min_db, max_db):
-        """Set dynamic range for waterfall
-        
-        Args:
-            min_db: Minimum dB level
-            max_db: Maximum dB level
-        """
-        self.min_db = min(min_db, max_db - 5)  # Ensure at least 5 dB range
-        self.max_db = max_db
-    
-    def set_contrast(self, contrast):
-        """Set contrast (0.1 to 3.0)
-        
-        Args:
-            contrast: Contrast multiplier
-        """
-        self.contrast = np.clip(contrast, 0.1, 3.0)
-    
-    def set_brightness(self, brightness):
-        """Set brightness (-50 to +50 dB)
-        
-        Args:
-            brightness: Brightness offset in dB
-        """
-        self.brightness = np.clip(brightness, -50, 50)
-    
-    def set_averaging(self, frames):
-        """Set number of frames to average for smoothing
-        
-        Args:
-            frames: Number of frames (1 = no averaging, higher = more smoothing)
-        """
-        self.averaging = max(1, int(frames))
-    
-    def apply_processing(self, fft_db):
-        """Apply waterfall processing (contrast, brightness, peak hold)
-        
-        Args:
-            fft_db: FFT magnitude in dB
-            
-        Returns:
-            numpy.ndarray: Processed FFT data
-        """
-        # Apply brightness and contrast
-        processed = (fft_db + self.brightness) * self.contrast
-        
-        # Apply peak hold if enabled
-        if self.peak_hold:
-            if self.peak_buffer is None or len(self.peak_buffer) != len(processed):
-                self.peak_buffer = processed.copy()
-            else:
-                # Update peak hold buffer
-                self.peak_buffer = np.maximum(processed, self.peak_buffer * self.peak_decay)
-                processed = self.peak_buffer.copy()
-        
-        # Clip to range
-        processed = np.clip(processed, self.min_db, self.max_db)
-        
-        return processed
-    
-    def get_settings_dict(self):
-        """Get all settings as dictionary
-        
-        Returns:
-            dict: Current settings
-        """
-        return {
-            'colormap': self.colormap,
-            'min_db': self.min_db,
-            'max_db': self.max_db,
-            'contrast': self.contrast,
-            'brightness': self.brightness,
-            'averaging': self.averaging,
-            'peak_hold': self.peak_hold,
-            'waterfall_speed': self.waterfall_speed,
-            'show_grid': self.show_grid,
-            'show_peak_marker': self.show_peak_marker
-        }
-
-
-class AudioDemodulator:
-    """Base class for audio demodulation
-    
-    This is the parent class for various demodulation methods (FM, AM, SSB, etc.)
-    """
-    
-    def __init__(self, sample_rate=2.4e6, audio_rate=48000, cutoff_freq=15000, squelch_threshold=-50):
-        """Initialize audio demodulator
-        
-        Args:
-            sample_rate: Input IQ sample rate in Hz
-            audio_rate: Output audio sample rate in Hz (default: 48 kHz)
-            cutoff_freq: Low-pass filter cutoff frequency in Hz
-            squelch_threshold: Squelch threshold in dB (default: -50 dB)
+            sample_rate: Sample rate in Hz
         """
         self.sample_rate = sample_rate
-        self.audio_rate = audio_rate
-        self.cutoff_freq = cutoff_freq
+        self.prev_phase = 0
         
-        # Calculate decimation factor
-        self.decimation = int(sample_rate / audio_rate)
-        
-        # Design low-pass filter for audio
-        self.audio_filter = scipy_signal.butter(5, cutoff_freq / (audio_rate / 2), btype='low')
-        
-        # Squelch parameters
-        self.squelch_threshold = squelch_threshold  # dB threshold for squelch
-        self.squelch_enabled = True
-        self.squelch_alpha = 0.1  # Smoothing factor for power estimation
-        self.smoothed_power = -100  # Initialize to very low value
-        self.last_signal_detected = False
-        self.squelch_hysteresis = 3  # dB hysteresis to prevent chattering
-        
-    def detect_signal(self, iq_samples):
-        """Detect if there's a strong signal present (with squelch)
+    def demodulate_am(self, samples):
+        """Demodulate AM (Amplitude Modulation) signal
         
         Args:
-            iq_samples: Complex IQ samples
+            samples: Complex IQ samples
             
         Returns:
-            bool: True if signal detected above threshold
+            numpy.ndarray: Demodulated audio signal
         """
-        # Calculate instantaneous power in dB
-        power = np.mean(np.abs(iq_samples) ** 2)
-        power_db = 10 * np.log10(power + 1e-10)
-        
-        # Apply exponential smoothing for more stable squelch
-        self.smoothed_power = (self.squelch_alpha * power_db + 
-                              (1 - self.squelch_alpha) * self.smoothed_power)
-        
-        # Apply hysteresis to prevent chattering
-        if self.squelch_enabled:
-            if self.last_signal_detected:
-                # Signal was on, use lower threshold to turn off
-                threshold = self.squelch_threshold - self.squelch_hysteresis
-            else:
-                # Signal was off, use higher threshold to turn on
-                threshold = self.squelch_threshold
-            
-            signal_detected = self.smoothed_power > threshold
-        else:
-            # Squelch disabled, always pass signal
-            signal_detected = True
-        
-        self.last_signal_detected = signal_detected
-        return signal_detected
+        # AM demodulation: simply take the magnitude
+        return np.abs(samples)
     
-    def set_squelch(self, threshold_db):
-        """Set squelch threshold
+    def demodulate_fm(self, samples):
+        """Demodulate FM (Frequency Modulation) signal
         
         Args:
-            threshold_db: Threshold in dB (-100 to 0)
-        """
-        self.squelch_threshold = np.clip(threshold_db, -100, 0)
-    
-    def enable_squelch(self, enabled):
-        """Enable or disable squelch
-        
-        Args:
-            enabled: True to enable squelch, False to disable
-        """
-        self.squelch_enabled = enabled
-    
-    def get_signal_strength(self):
-        """Get current signal strength in dB
-        
-        Returns:
-            float: Signal strength in dB
-        """
-        return self.smoothed_power
-    
-    def lowpass_filter(self, audio):
-        """Apply low-pass filter to audio
-        
-        Args:
-            audio: Audio samples
+            samples: Complex IQ samples
             
         Returns:
-            numpy.ndarray: Filtered audio
+            numpy.ndarray: Demodulated audio signal
         """
-        filtered = scipy_signal.lfilter(self.audio_filter[0], self.audio_filter[1], audio)
-        return filtered
-    
-    def demodulate(self, iq_samples):
-        """Demodulate IQ samples to audio
+        # FM demodulation: compute phase difference
+        phase = np.angle(samples)
+        phase_diff = np.diff(phase)
         
-        Must be implemented by subclasses
-        
-        Args:
-            iq_samples: Complex IQ samples
-            
-        Returns:
-            numpy.ndarray: Demodulated audio samples
-        """
-        raise NotImplementedError("Subclasses must implement demodulate()")
-
-
-class FMDemodulator(AudioDemodulator):
-    """FM (Frequency Modulation) demodulator
-    
-    Implements wideband FM demodulation for broadcast FM and NFM for
-    narrowband communications.
-    """
-    
-    def __init__(self, sample_rate=2.4e6, audio_rate=48000, deviation=75000):
-        """Initialize FM demodulator
-        
-        Args:
-            sample_rate: Input IQ sample rate in Hz
-            audio_rate: Output audio sample rate in Hz
-            deviation: FM deviation in Hz (75 kHz for broadcast, 5 kHz for NFM)
-        """
-        super().__init__(sample_rate, audio_rate)
-        self.deviation = deviation
-        self.last_phase = 0
-        
-    def demodulate(self, iq_samples):
-        """Demodulate FM signal to audio
-        
-        Uses phase differentiation method for FM demodulation
-        
-        Args:
-            iq_samples: Complex IQ samples
-            
-        Returns:
-            numpy.ndarray: Demodulated audio samples
-        """
-        # Calculate instantaneous phase
-        phase = np.angle(iq_samples)
-        
-        # Calculate phase difference (frequency)
-        phase_diff = np.diff(phase, prepend=self.last_phase)
-        self.last_phase = phase[-1]
-        
-        # Unwrap phase to handle discontinuities
+        # Unwrap phase to handle wraparound
         phase_diff = np.unwrap(phase_diff)
         
-        # Convert to audio (scale by sample rate)
-        audio = phase_diff * self.sample_rate / (2 * np.pi * self.deviation)
+        # Prepend a zero to maintain array length
+        phase_diff = np.insert(phase_diff, 0, self.prev_phase)
+        self.prev_phase = phase_diff[-1]
         
-        # Decimate to audio rate
-        audio_decimated = scipy_signal.decimate(audio, self.decimation, ftype='iir')
-        
-        # Apply de-emphasis filter (75 µs time constant for broadcast FM)
-        tau = 75e-6  # Time constant
-        alpha = 1 / (1 + self.audio_rate * tau)
-        audio_deemph = scipy_signal.lfilter([alpha], [1, alpha - 1], audio_decimated)
-        
-        # Normalize audio
-        audio_norm = np.clip(audio_deemph, -1, 1)
-        
-        return audio_norm.astype(np.float32)
-
-
-class AMDemodulator(AudioDemodulator):
-    """AM (Amplitude Modulation) demodulator
+        return phase_diff
     
-    Implements envelope detection for AM demodulation.
-    """
-    
-    def demodulate(self, iq_samples):
-        """Demodulate AM signal to audio
-        
-        Uses envelope detection method
+    def demodulate_usb(self, samples):
+        """Demodulate USB (Upper Sideband) signal
         
         Args:
-            iq_samples: Complex IQ samples
+            samples: Complex IQ samples
             
         Returns:
-            numpy.ndarray: Demodulated audio samples
+            numpy.ndarray: Demodulated audio signal
         """
-        # Calculate envelope (magnitude)
-        envelope = np.abs(iq_samples)
-        
-        # Remove DC component
-        envelope = envelope - np.mean(envelope)
-        
-        # Decimate to audio rate
-        audio_decimated = scipy_signal.decimate(envelope, self.decimation, ftype='iir')
-        
-        # Apply low-pass filter
-        audio_filtered = self.lowpass_filter(audio_decimated)
-        
-        # Normalize
-        max_val = np.max(np.abs(audio_filtered))
-        if max_val > 0:
-            audio_norm = audio_filtered / max_val
-        else:
-            audio_norm = audio_filtered
-            
-        return audio_norm.astype(np.float32)
-
-
-class SSBDemodulator(AudioDemodulator):
-    """SSB (Single Sideband) demodulator
+        # USB demodulation: take the real part after shifting frequency
+        return np.real(samples)
     
-    Implements USB (Upper Sideband) and LSB (Lower Sideband) demodulation.
-    """
-    
-    def __init__(self, sample_rate=2.4e6, audio_rate=48000, mode='USB'):
-        """Initialize SSB demodulator
+    def demodulate_lsb(self, samples):
+        """Demodulate LSB (Lower Sideband) signal
         
         Args:
-            sample_rate: Input IQ sample rate in Hz
-            audio_rate: Output audio sample rate in Hz
-            mode: 'USB' for upper sideband or 'LSB' for lower sideband
-        """
-        super().__init__(sample_rate, audio_rate, cutoff_freq=3000)
-        self.mode = mode
-        
-        # Design bandpass filter for SSB (300 Hz to 3000 Hz)
-        self.ssb_filter = scipy_signal.butter(5, [300 / (audio_rate / 2), 3000 / (audio_rate / 2)], 
-                                              btype='band')
-        
-    def demodulate(self, iq_samples):
-        """Demodulate SSB signal to audio
-        
-        Args:
-            iq_samples: Complex IQ samples
+            samples: Complex IQ samples
             
         Returns:
-            numpy.ndarray: Demodulated audio samples
+            numpy.ndarray: Demodulated audio signal
         """
-        # For SSB, we take either the real or imaginary part depending on sideband
-        if self.mode == 'USB':
-            audio = np.real(iq_samples)
-        else:  # LSB
-            audio = np.imag(iq_samples)
-        
-        # Decimate to audio rate
-        audio_decimated = scipy_signal.decimate(audio, self.decimation, ftype='iir')
-        
-        # Apply SSB bandpass filter
-        audio_filtered = scipy_signal.lfilter(self.ssb_filter[0], self.ssb_filter[1], 
-                                              audio_decimated)
-        
-        # Normalize
-        max_val = np.max(np.abs(audio_filtered))
-        if max_val > 0:
-            audio_norm = audio_filtered / max_val
-        else:
-            audio_norm = audio_filtered
-            
-        return audio_norm.astype(np.float32)
-
-
-class AudioPlayer:
-    """Real-time audio playback
+        # LSB demodulation: take the real part after frequency reversal
+        return np.real(np.conj(samples))
     
-    Handles audio output to speakers using sounddevice or pyaudio.
-    """
-    
-    def __init__(self, sample_rate=48000, channels=1, buffer_size=2048):
-        """Initialize audio player
+    def demodulate_cw(self, samples):
+        """Demodulate CW (Morse code) signal
         
         Args:
-            sample_rate: Audio sample rate in Hz
-            channels: Number of audio channels (1 for mono, 2 for stereo)
-            buffer_size: Audio buffer size in samples
+            samples: Complex IQ samples
+            
+        Returns:
+            numpy.ndarray: Demodulated envelope for Morse detection
+        """
+        # CW demodulation: envelope detection
+        return np.abs(samples)
+
+
+class MorseDecoder:
+    """Decode Morse code (CW) signals from demodulated audio
+    
+    This class detects Morse code patterns and converts them to text.
+    """
+    
+    # Morse code dictionary
+    MORSE_CODE = {
+        '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E',
+        '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J',
+        '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O',
+        '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T',
+        '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y',
+        '--..': 'Z', '.----': '1', '..---': '2', '...--': '3', '....-': '4',
+        '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9',
+        '-----': '0', '..--..': '?', '-..-.': '/', '-.-.--': '!',
+        '.--.-.': '@', '.-...': '&', '---...': ':', '-.-.-.': ';',
+        '-...-': '=', '.-.-.': '+', '-....-': '-', '..--.-': '_',
+        '.-..-.': '"', '...-..-': '$', '.-.-.-': '.', '--..--': ','
+    }
+    
+    def __init__(self, sample_rate=2.4e6, wpm=20):
+        """Initialize Morse decoder
+        
+        Args:
+            sample_rate: Sample rate in Hz
+            wpm: Words per minute (affects timing)
         """
         self.sample_rate = sample_rate
-        self.channels = channels
-        self.buffer_size = buffer_size
-        self.is_playing = False
-        self.stream = None
+        self.wpm = wpm
         
-        if not AUDIO_AVAILABLE:
-            print("Warning: No audio library available. Install sounddevice or pyaudio for audio playback.")
-            
-    def start(self):
-        """Start audio playback"""
-        if not AUDIO_AVAILABLE:
-            return False
-            
-        try:
-            if AUDIO_BACKEND == 'sounddevice':
-                self.stream = sd.OutputStream(
-                    samplerate=self.sample_rate,
-                    channels=self.channels,
-                    blocksize=self.buffer_size,
-                    dtype='float32'
-                )
-                self.stream.start()
-            elif AUDIO_BACKEND == 'pyaudio':
-                self.pa = pyaudio.PyAudio()
-                self.stream = self.pa.open(
-                    format=pyaudio.paFloat32,
-                    channels=self.channels,
-                    rate=self.sample_rate,
-                    output=True,
-                    frames_per_buffer=self.buffer_size
-                )
-            
-            self.is_playing = True
-            return True
-            
-        except Exception as e:
-            print(f"Failed to start audio playback: {e}")
-            return False
-    
-    def play(self, audio_data):
-        """Play audio data
+        # Calculate timing thresholds based on WPM
+        # Standard: 1 dot = 1.2 / WPM seconds
+        self.dot_duration = 1.2 / wpm
+        self.dash_duration = 3 * self.dot_duration
+        self.element_gap = self.dot_duration
+        self.char_gap = 3 * self.dot_duration
+        self.word_gap = 7 * self.dot_duration
+        
+        # Detection state
+        self.current_symbol = ""
+        self.current_word = ""
+        self.decoded_text = ""
+        self.last_state = 0
+        self.state_duration = 0
+        
+        # Threshold for signal detection
+        self.threshold = 0.3
+        
+    def process_samples(self, envelope):
+        """Process envelope samples to detect Morse code
         
         Args:
-            audio_data: Audio samples to play (numpy array)
-        """
-        if not self.is_playing or self.stream is None:
-            return
+            envelope: Demodulated envelope signal
             
-        try:
-            # Ensure audio data is the right type and shape
-            if audio_data.dtype != np.float32:
-                audio_data = audio_data.astype(np.float32)
-                
-            if self.channels == 1 and len(audio_data.shape) == 1:
-                # Mono audio
-                if AUDIO_BACKEND == 'sounddevice':
-                    self.stream.write(audio_data)
-                elif AUDIO_BACKEND == 'pyaudio':
-                    self.stream.write(audio_data.tobytes())
-            elif self.channels == 2:
-                # Stereo - duplicate mono to both channels
-                if len(audio_data.shape) == 1:
-                    stereo_data = np.column_stack((audio_data, audio_data))
-                else:
-                    stereo_data = audio_data
-                    
-                if AUDIO_BACKEND == 'sounddevice':
-                    self.stream.write(stereo_data)
-                elif AUDIO_BACKEND == 'pyaudio':
-                    self.stream.write(stereo_data.tobytes())
-                    
-        except Exception as e:
-            print(f"Error playing audio: {e}")
-    
-    def stop(self):
-        """Stop audio playback"""
-        self.is_playing = False
+        Returns:
+            str: Newly decoded text (if any)
+        """
+        # Average the envelope to get signal strength
+        avg_signal = np.mean(envelope)
         
-        if self.stream:
-            try:
-                if AUDIO_BACKEND == 'sounddevice':
-                    self.stream.stop()
-                    self.stream.close()
-                elif AUDIO_BACKEND == 'pyaudio':
-                    self.stream.stop_stream()
-                    self.stream.close()
-                    self.pa.terminate()
-            except Exception as e:
-                print(f"Error stopping audio: {e}")
-                
-        self.stream = None
+        # Detect on/off state
+        current_state = 1 if avg_signal > self.threshold else 0
+        
+        # Calculate duration in samples
+        samples_per_second = self.sample_rate
+        duration_samples = len(envelope)
+        duration_seconds = duration_samples / samples_per_second
+        
+        new_text = ""
+        
+        # If state changed
+        if current_state != self.last_state:
+            if self.last_state == 1:  # End of a tone (dot or dash)
+                if self.state_duration >= self.dash_duration * 0.7:
+                    self.current_symbol += '-'
+                elif self.state_duration >= self.dot_duration * 0.5:
+                    self.current_symbol += '.'
+            else:  # End of a gap
+                if self.state_duration >= self.word_gap * 0.7:
+                    # End of word
+                    if self.current_symbol:
+                        char = self.MORSE_CODE.get(self.current_symbol, '?')
+                        new_text += char + ' '
+                        self.current_symbol = ""
+                elif self.state_duration >= self.char_gap * 0.7:
+                    # End of character
+                    if self.current_symbol:
+                        char = self.MORSE_CODE.get(self.current_symbol, '?')
+                        new_text += char
+                        self.current_symbol = ""
+            
+            self.state_duration = 0
+        
+        # Accumulate duration
+        self.state_duration += duration_seconds
+        self.last_state = current_state
+        
+        if new_text:
+            self.decoded_text += new_text
+        
+        return new_text
     
-    def is_active(self):
-        """Check if audio is currently playing
+    def get_decoded_text(self):
+        """Get all decoded text
         
         Returns:
-            bool: True if audio playback is active
+            str: Complete decoded text
         """
-        return self.is_playing
+        return self.decoded_text
+    
+    def reset(self):
+        """Reset decoder state"""
+        self.current_symbol = ""
+        self.current_word = ""
+        self.decoded_text = ""
+        self.last_state = 0
+        self.state_duration = 0
