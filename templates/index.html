@@ -296,6 +296,7 @@
         </header>
         
         <div class="waterfall-container">
+            <canvas id="waveform" width="800" height="200" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: block; background: #222; margin-bottom: 10px;"></canvas>
             <img id="waterfall" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='400'%3E%3Crect width='800' height='400' fill='%23222'/%3E%3Ctext x='400' y='200' text-anchor='middle' fill='%23fff' font-size='20'%3EWaiting for data...%3C/text%3E%3C/svg%3E" alt="Waterfall Display">
         </div>
         
@@ -499,6 +500,81 @@
         socket.on('waterfall_update', function(data) {
             const img = document.getElementById('waterfall');
             img.src = 'data:image/png;base64,' + data.image;
+        });
+        
+        // Waveform updates (uses same FFT data as waterfall)
+        socket.on('waveform_update', function(data) {
+            const canvas = document.getElementById('waveform');
+            const ctx = canvas.getContext('2d');
+            const fftData = data.data;
+            const minDb = data.min_db;
+            const maxDb = data.max_db;
+            const freqStart = data.freq_start;
+            const freqEnd = data.freq_end;
+            const w = canvas.width;
+            const h = canvas.height;
+            const padding = {top: 20, right: 10, bottom: 30, left: 50};
+            const plotW = w - padding.left - padding.right;
+            const plotH = h - padding.top - padding.bottom;
+            
+            ctx.clearRect(0, 0, w, h);
+            
+            // Background
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Grid
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 0.5;
+            for (let gi = 0; gi <= 4; gi++) {
+                let gy = padding.top + (plotH * gi / 4);
+                ctx.beginPath();
+                ctx.moveTo(padding.left, gy);
+                ctx.lineTo(padding.left + plotW, gy);
+                ctx.stroke();
+            }
+            for (let gi = 0; gi <= 4; gi++) {
+                let gx = padding.left + (plotW * gi / 4);
+                ctx.beginPath();
+                ctx.moveTo(gx, padding.top);
+                ctx.lineTo(gx, padding.top + plotH);
+                ctx.stroke();
+            }
+            
+            // Draw waveform line
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (let i = 0; i < fftData.length; i++) {
+                let x = padding.left + (i / (fftData.length - 1)) * plotW;
+                let dbVal = Math.max(minDb, Math.min(maxDb, fftData[i]));
+                let y = padding.top + plotH - ((dbVal - minDb) / (maxDb - minDb)) * plotH;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            
+            // Axis labels
+            ctx.fillStyle = '#aaa';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            for (let ti = 0; ti <= 4; ti++) {
+                let freq = freqStart + (freqEnd - freqStart) * ti / 4;
+                let tx = padding.left + (plotW * ti / 4);
+                ctx.fillText(freq.toFixed(2) + ' MHz', tx, h - 5);
+            }
+            ctx.textAlign = 'right';
+            for (let ti = 0; ti <= 4; ti++) {
+                let db = maxDb - (maxDb - minDb) * ti / 4;
+                let ty = padding.top + (plotH * ti / 4);
+                ctx.fillText(db.toFixed(0) + ' dB', padding.left - 5, ty + 3);
+            }
+            
+            // Title
+            ctx.fillStyle = '#ccc';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Waveform Display (Spectrum)', w / 2, 14);
         });
         
         // Control functions
