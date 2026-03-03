@@ -110,6 +110,72 @@ if PYQT5_AVAILABLE:
             self.axes.set_xticklabels(tick_labels)
             self.axes.set_xlabel('Frequency (MHz)')
 
+    class WaveformWidget(FigureCanvas):
+        """Widget for displaying waveform (spectrum line graph) visualization"""
+        
+        def __init__(self, parent=None, width=8, height=3, dpi=100):
+            self.fig = Figure(figsize=(width, height), dpi=dpi)
+            self.axes = self.fig.add_subplot(111)
+            super(WaveformWidget, self).__init__(self.fig)
+            self.setParent(parent)
+            
+            # Waveform display parameters
+            self.fft_size = 1024
+            self.min_db = -80
+            self.max_db = 0
+            
+            # Initialize the waveform line plot
+            self.line, = self.axes.plot(np.zeros(self.fft_size), color='cyan', linewidth=0.8)
+            self.axes.set_ylim(self.min_db, self.max_db)
+            self.axes.set_xlim(0, self.fft_size - 1)
+            self.axes.set_xlabel('Frequency Bins')
+            self.axes.set_ylabel('Power (dB)')
+            self.axes.set_title('Waveform Display (Spectrum)')
+            self.axes.grid(True, alpha=0.3)
+            self.fig.tight_layout()
+        
+        def set_range(self, min_db, max_db):
+            """Set display range
+            
+            Args:
+                min_db: Minimum dB level
+                max_db: Maximum dB level
+            """
+            self.min_db = min_db
+            self.max_db = max_db
+            self.axes.set_ylim(self.min_db, self.max_db)
+            self.draw()
+        
+        def update_waveform(self, fft_data):
+            """Update waveform display with new FFT data
+            
+            Args:
+                fft_data: FFT magnitude data in dB (same data used by waterfall)
+            """
+            self.line.set_ydata(fft_data)
+            if len(fft_data) != self.fft_size:
+                self.fft_size = len(fft_data)
+                self.line.set_xdata(np.arange(self.fft_size))
+                self.axes.set_xlim(0, self.fft_size - 1)
+            self.draw()
+        
+        def set_frequency_labels(self, center_freq, sample_rate):
+            """Update frequency axis labels
+            
+            Args:
+                center_freq: Center frequency in Hz
+                sample_rate: Sample rate in Hz
+            """
+            freq_start = (center_freq - sample_rate / 2) / 1e6
+            freq_end = (center_freq + sample_rate / 2) / 1e6
+            
+            num_ticks = 5
+            tick_positions = np.linspace(0, self.fft_size - 1, num_ticks)
+            tick_labels = [f'{freq:.2f}' for freq in np.linspace(freq_start, freq_end, num_ticks)]
+            
+            self.axes.set_xticks(tick_positions)
+            self.axes.set_xticklabels(tick_labels)
+            self.axes.set_xlabel('Frequency (MHz)')
 
     class WaveRiderSDR(QMainWindow):
         """Main application window for WaveRiderSDR"""
@@ -175,6 +241,11 @@ if PYQT5_AVAILABLE:
             central_widget = QWidget()
             self.setCentralWidget(central_widget)
             main_layout = QVBoxLayout(central_widget)
+            
+            # Create waveform widget (spectrum line graph)
+            self.waveform = WaveformWidget(self, width=8, height=3)
+            self.waveform.set_frequency_labels(self.center_freq, self.sample_rate)
+            main_layout.addWidget(self.waveform)
             
             # Create waterfall widget
             self.waterfall = WaterfallWidget(self, width=8, height=5)
@@ -458,8 +529,9 @@ if PYQT5_AVAILABLE:
             # Apply waterfall processing (contrast, brightness, peak hold)
             fft_processed = self.waterfall_settings.apply_processing(fft_db)
             
-            # Update waterfall
+            # Update waterfall and waveform with the same processed data
             self.waterfall.update_waterfall(fft_processed)
+            self.waveform.update_waveform(fft_processed)
             
             # Process audio if enabled (with squelch)
             if self.audio_enabled and self.audio_player.is_active():
@@ -491,6 +563,7 @@ if PYQT5_AVAILABLE:
                 self.sdr_device.set_center_freq(self.center_freq)
             
             self.waterfall.set_frequency_labels(self.center_freq, self.sample_rate)
+            self.waveform.set_frequency_labels(self.center_freq, self.sample_rate)
             self.statusBar().showMessage(f'Center frequency: {value} MHz')
         
         def on_band_selected(self, band_name):
@@ -531,12 +604,14 @@ if PYQT5_AVAILABLE:
                 self.sdr_device.set_sample_rate(self.sample_rate)
             
             self.waterfall.set_frequency_labels(self.center_freq, self.sample_rate)
+            self.waveform.set_frequency_labels(self.center_freq, self.sample_rate)
             self.statusBar().showMessage(f'Sample rate: {value}')
             
         def on_fft_size_changed(self, value):
             """Handle FFT size change"""
             self.fft_size = int(value)
             self.waterfall.fft_size = self.fft_size
+            self.waveform.fft_size = self.fft_size
             # Reinitialize waterfall data
             self.waterfall.waterfall_data = np.zeros((self.waterfall.waterfall_height, self.fft_size))
             self.statusBar().showMessage(f'FFT size: {value}')
@@ -617,6 +692,7 @@ if PYQT5_AVAILABLE:
             max_db = self.max_db_spinbox.value()
             self.waterfall_settings.set_range(min_db, max_db)
             self.waterfall.set_range(min_db, max_db)
+            self.waveform.set_range(min_db, max_db)
             self.statusBar().showMessage(f'Waterfall range: {min_db} to {max_db} dB')
         
         def on_peak_hold_changed(self, state):

@@ -398,6 +398,18 @@ class WaveRiderWebApp:
                 
                 self.socketio.emit('waterfall_update', {'image': img_b64})
                 
+                # Send waveform data (same FFT data used by waterfall)
+                waveform_list = fft_processed.tolist()
+                freq_start = (self.center_freq - self.sample_rate / 2) / 1e6
+                freq_end = (self.center_freq + self.sample_rate / 2) / 1e6
+                self.socketio.emit('waveform_update', {
+                    'data': waveform_list,
+                    'min_db': self.waterfall_settings.min_db,
+                    'max_db': self.waterfall_settings.max_db,
+                    'freq_start': freq_start,
+                    'freq_end': freq_end
+                })
+                
                 # Process audio if enabled
                 if self.audio_enabled:
                     # Detect if signal is strong enough
