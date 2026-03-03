@@ -526,15 +526,15 @@
             // Grid
             ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             ctx.lineWidth = 0.5;
-            for (var gi = 0; gi <= 4; gi++) {
-                var gy = padding.top + (plotH * gi / 4);
+            for (let gi = 0; gi <= 4; gi++) {
+                let gy = padding.top + (plotH * gi / 4);
                 ctx.beginPath();
                 ctx.moveTo(padding.left, gy);
                 ctx.lineTo(padding.left + plotW, gy);
                 ctx.stroke();
             }
-            for (var gi = 0; gi <= 4; gi++) {
-                var gx = padding.left + (plotW * gi / 4);
+            for (let gi = 0; gi <= 4; gi++) {
+                let gx = padding.left + (plotW * gi / 4);
                 ctx.beginPath();
                 ctx.moveTo(gx, padding.top);
                 ctx.lineTo(gx, padding.top + plotH);
@@ -545,10 +545,10 @@
             ctx.strokeStyle = '#00e5ff';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            for (var i = 0; i < fftData.length; i++) {
-                var x = padding.left + (i / (fftData.length - 1)) * plotW;
-                var dbVal = Math.max(minDb, Math.min(maxDb, fftData[i]));
-                var y = padding.top + plotH - ((dbVal - minDb) / (maxDb - minDb)) * plotH;
+            for (let i = 0; i < fftData.length; i++) {
+                let x = padding.left + (i / (fftData.length - 1)) * plotW;
+                let dbVal = Math.max(minDb, Math.min(maxDb, fftData[i]));
+                let y = padding.top + plotH - ((dbVal - minDb) / (maxDb - minDb)) * plotH;
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             }
@@ -558,15 +558,15 @@
             ctx.fillStyle = '#aaa';
             ctx.font = '10px sans-serif';
             ctx.textAlign = 'center';
-            for (var ti = 0; ti <= 4; ti++) {
-                var freq = freqStart + (freqEnd - freqStart) * ti / 4;
-                var tx = padding.left + (plotW * ti / 4);
+            for (let ti = 0; ti <= 4; ti++) {
+                let freq = freqStart + (freqEnd - freqStart) * ti / 4;
+                let tx = padding.left + (plotW * ti / 4);
                 ctx.fillText(freq.toFixed(2) + ' MHz', tx, h - 5);
             }
             ctx.textAlign = 'right';
-            for (var ti = 0; ti <= 4; ti++) {
-                var db = maxDb - (maxDb - minDb) * ti / 4;
-                var ty = padding.top + (plotH * ti / 4);
+            for (let ti = 0; ti <= 4; ti++) {
+                let db = maxDb - (maxDb - minDb) * ti / 4;
+                let ty = padding.top + (plotH * ti / 4);
                 ctx.fillText(db.toFixed(0) + ' dB', padding.left - 5, ty + 3);
             }
             

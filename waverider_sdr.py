@@ -152,11 +152,11 @@ if PYQT5_AVAILABLE:
             Args:
                 fft_data: FFT magnitude data in dB (same data used by waterfall)
             """
-            self.line.set_ydata(fft_data)
             if len(fft_data) != self.fft_size:
                 self.fft_size = len(fft_data)
                 self.line.set_xdata(np.arange(self.fft_size))
                 self.axes.set_xlim(0, self.fft_size - 1)
+            self.line.set_ydata(fft_data)
             self.draw()
         
         def set_frequency_labels(self, center_freq, sample_rate):
