@@ -125,6 +125,11 @@
       color: var(--muted);
     }
 
+    .status-warning {
+      width: 100%;
+      color: #ffb570;
+    }
+
     @media (max-width: 760px) {
       .layout { margin: 12px auto; }
       #waveform { height: 150px; }
@@ -357,7 +362,8 @@
         `<span>Morse: ${s.morse_text || "(none)"}</span>` +
         `<span>Source: ${s.source}</span>` +
         `<span>Signal: ${Number(s.signal_strength_db).toFixed(1)} dB ${s.signal_detected ? "(active)" : "(quiet)"}</span>` +
-        `<span>Meshtastic: ${meshtasticText}</span>`;
+        `<span>Meshtastic: ${meshtasticText}</span>` +
+        `${s.source_notice ? `<span class="status-warning">${s.source_notice}</span>` : ""}`;
 
       if (Array.isArray(s.sdr_devices)) {
         const existing = new Set(Array.from(controls.sdrDeviceSelect.options).map((o) => o.value));

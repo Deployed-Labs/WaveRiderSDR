@@ -1,5 +1,6 @@
 use std::process::Command;
 
+use num_complex::Complex32;
 use serde::Serialize;
 use serialport::SerialPortType;
 
@@ -101,6 +102,7 @@ impl MeshtasticDetector {
 pub struct SdrDeviceInfo {
     pub id: String,
     pub device_type: String,
+    pub backend: String,
     pub name: String,
     pub description: String,
 }
@@ -128,6 +130,7 @@ impl SdrDevice {
             devices.push(SdrDeviceInfo {
                 id: "rtl_sdr_0".to_string(),
                 device_type: "RTL-SDR".to_string(),
+                backend: "rtlsdr".to_string(),
                 name: "RTL-SDR (rtl_test detected)".to_string(),
                 description: "RTL-SDR tooling found on system PATH".to_string(),
             });
@@ -137,6 +140,7 @@ impl SdrDevice {
             devices.push(SdrDeviceInfo {
                 id: "hackrf_0".to_string(),
                 device_type: "HackRF".to_string(),
+                backend: "hackrf".to_string(),
                 name: "HackRF (SoapySDR detected)".to_string(),
                 description: "SoapySDR tooling found on system PATH".to_string(),
             });
@@ -168,6 +172,27 @@ impl SdrDevice {
             format!("{} ({})", dev.device_type, dev.name)
         } else {
             "Simulated".to_string()
+        }
+    }
+
+    pub fn read_samples(
+        &self,
+        _num_samples: usize,
+        _sample_rate: f32,
+        _center_freq: f32,
+    ) -> Result<Vec<Complex32>, String> {
+        let Some(device) = &self.connected_device else {
+            return Err("No SDR device connected".to_string());
+        };
+
+        match device.backend.as_str() {
+            "rtlsdr" => Err(
+                "RTL-SDR direct IQ capture backend is not enabled in this build yet".to_string(),
+            ),
+            "hackrf" => Err(
+                "HackRF direct IQ capture backend is not enabled in this build yet".to_string(),
+            ),
+            _ => Err("Unknown SDR backend".to_string()),
         }
     }
 }

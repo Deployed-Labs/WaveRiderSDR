@@ -35,6 +35,7 @@ struct StatusResponse {
     signal_strength_db: f32,
     signal_detected: bool,
     source: String,
+    source_notice: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,7 +138,8 @@ async fn get_status(State(state): State<SharedState>) -> impl IntoResponse {
         morse_text: guard.morse_decoder.decoded_text.clone(),
         signal_strength_db: guard.signal_strength_db,
         signal_detected: guard.signal_detected,
-        source: guard.sdr.source_label(),
+        source: guard.active_source.clone(),
+        source_notice: guard.source_notice.clone(),
     })
 }
 

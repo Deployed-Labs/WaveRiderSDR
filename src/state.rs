@@ -20,6 +20,8 @@ pub struct AppState {
     pub morse_enabled: bool,
     pub signal_strength_db: f32,
     pub signal_detected: bool,
+    pub active_source: String,
+    pub source_notice: Option<String>,
     pub waterfall_settings: WaterfallSettings,
 }
 
@@ -47,6 +49,8 @@ impl Default for AppState {
             morse_enabled: false,
             signal_strength_db: -120.0,
             signal_detected: false,
+            active_source: "Simulated".to_string(),
+            source_notice: None,
             waterfall_settings: WaterfallSettings::default(),
         }
     }
@@ -54,7 +58,32 @@ impl Default for AppState {
 
 impl AppState {
     pub fn tick(&mut self) {
-        let samples = self.generator.generate_samples(self.fft_size);
+        let samples = if self.sdr.is_connected {
+            let connected_label = self.sdr.source_label();
+            match self
+                .sdr
+                .read_samples(self.fft_size, self.sample_rate, self.center_freq)
+            {
+                Ok(hw) => {
+                    self.active_source = connected_label;
+                    self.source_notice = None;
+                    hw
+                }
+                Err(err) => {
+                    self.active_source = "Simulated".to_string();
+                    self.source_notice = Some(format!(
+                        "Hardware source unavailable: {}. Falling back to simulated samples.",
+                        err
+                    ));
+                    self.generator.generate_samples(self.fft_size)
+                }
+            }
+        } else {
+            self.active_source = "Simulated".to_string();
+            self.source_notice = None;
+            self.generator.generate_samples(self.fft_size)
+        };
+
         self.signal_strength_db = self.demodulator.signal_strength_db(&samples);
         self.signal_detected = self.demodulator.detect_signal(&samples);
 
