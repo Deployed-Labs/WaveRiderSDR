@@ -1,8 +1,11 @@
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use num_complex::Complex32;
 use serde::Serialize;
 use serialport::SerialPortType;
+use crate::rtlsdr_capture::RtlSdrCapture;
+use crate::hackrf_capture::HackRfCapture;
 
 #[derive(Debug, Clone)]
 pub struct WaterfallSettings {
@@ -107,10 +110,21 @@ pub struct SdrDeviceInfo {
     pub description: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SdrDevice {
     pub is_connected: bool,
     pub connected_device: Option<SdrDeviceInfo>,
+    rtlsdr_capture: Arc<Mutex<Option<Box<RtlSdrCapture>>>>,
+    hackrf_capture: Arc<Mutex<Option<Box<HackRfCapture>>>>,
+}
+
+impl std::fmt::Debug for SdrDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SdrDevice")
+            .field("is_connected", &self.is_connected)
+            .field("connected_device", &self.connected_device)
+            .finish()
+    }
 }
 
 impl Default for SdrDevice {
@@ -118,6 +132,8 @@ impl Default for SdrDevice {
         Self {
             is_connected: false,
             connected_device: None,
+            rtlsdr_capture: Arc::new(Mutex::new(None)),
+            hackrf_capture: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -152,9 +168,33 @@ impl SdrDevice {
     pub fn connect(&mut self, device_id: &str) -> bool {
         let devices = self.detect_devices();
         if let Some(device) = devices.into_iter().find(|d| d.id == device_id) {
-            self.is_connected = true;
-            self.connected_device = Some(device);
-            true
+            // Initialize the appropriate capture backend
+            match device.backend.as_str() {
+                "rtlsdr" => {
+                    if let Ok(capture) = RtlSdrCapture::new() {
+                        if capture.connect().is_ok() {
+                            *self.rtlsdr_capture.lock().unwrap() = Some(Box::new(capture));
+                            self.is_connected = true;
+                            self.connected_device = Some(device);
+                            return true;
+                        }
+                    }
+                }
+                "hackrf" => {
+                    if let Ok(capture) = HackRfCapture::new() {
+                        if capture.connect().is_ok() {
+                            *self.hackrf_capture.lock().unwrap() = Some(Box::new(capture));
+                            self.is_connected = true;
+                            self.connected_device = Some(device);
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            self.is_connected = false;
+            self.connected_device = None;
+            false
         } else {
             self.is_connected = false;
             self.connected_device = None;
@@ -163,6 +203,21 @@ impl SdrDevice {
     }
 
     pub fn disconnect(&mut self) {
+        // Disconnect both backends
+        if let Ok(ref mut capture) = self.rtlsdr_capture.lock() {
+            if let Some(ref mut c) = capture.as_mut() {
+                c.disconnect();
+            }
+        }
+        if let Ok(ref mut capture) = self.hackrf_capture.lock() {
+            if let Some(ref mut c) = capture.as_mut() {
+                c.disconnect();
+            }
+        }
+        
+        *self.rtlsdr_capture.lock().unwrap() = None;
+        *self.hackrf_capture.lock().unwrap() = None;
+        
         self.is_connected = false;
         self.connected_device = None;
     }
@@ -177,21 +232,37 @@ impl SdrDevice {
 
     pub fn read_samples(
         &self,
-        _num_samples: usize,
-        _sample_rate: f32,
-        _center_freq: f32,
+        num_samples: usize,
+        sample_rate: f32,
+        center_freq: f32,
     ) -> Result<Vec<Complex32>, String> {
         let Some(device) = &self.connected_device else {
             return Err("No SDR device connected".to_string());
         };
 
         match device.backend.as_str() {
-            "rtlsdr" => Err(
-                "RTL-SDR direct IQ capture backend is not enabled in this build yet".to_string(),
-            ),
-            "hackrf" => Err(
-                "HackRF direct IQ capture backend is not enabled in this build yet".to_string(),
-            ),
+            "rtlsdr" => {
+                let capture_lock = self.rtlsdr_capture.lock()
+                    .map_err(|e| format!("Failed to lock RTL-SDR capture: {}", e))?;
+                
+                if let Some(capture) = capture_lock.as_ref() {
+                    capture.read_samples(num_samples, sample_rate, center_freq)
+                        .map_err(|e| format!("Failed to read samples from RTL-SDR: {}", e))
+                } else {
+                    Err("RTL-SDR device not connected".to_string())
+                }
+            }
+            "hackrf" => {
+                let capture_lock = self.hackrf_capture.lock()
+                    .map_err(|e| format!("Failed to lock HackRF capture: {}", e))?;
+                
+                if let Some(capture) = capture_lock.as_ref() {
+                    capture.read_samples(num_samples, sample_rate, center_freq)
+                        .map_err(|e| format!("Failed to read samples from HackRF: {}", e))
+                } else {
+                    Err("HackRF device not connected".to_string())
+                }
+            }
             _ => Err("Unknown SDR backend".to_string()),
         }
     }

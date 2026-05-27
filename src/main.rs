@@ -5,6 +5,8 @@ mod dsp;
 mod morse;
 mod state;
 mod web;
+mod rtlsdr_capture;
+mod hackrf_capture;
 
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
