@@ -1,0 +1,1 @@
+F:\WaveRiderSDR\target\release\waverider_sdr.exe: F:\WaveRiderSDR\src\band_plan.rs F:\WaveRiderSDR\src\common.rs F:\WaveRiderSDR\src\desktop.rs F:\WaveRiderSDR\src\dsp.rs F:\WaveRiderSDR\src\main.rs F:\WaveRiderSDR\src\morse.rs F:\WaveRiderSDR\src\state.rs F:\WaveRiderSDR\src\web.rs
