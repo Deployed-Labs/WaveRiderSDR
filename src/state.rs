@@ -18,6 +18,8 @@ pub struct AppState {
     pub morse_decoder: MorseDecoder,
     pub modulation_mode: String,
     pub morse_enabled: bool,
+    pub signal_strength_db: f32,
+    pub signal_detected: bool,
     pub waterfall_settings: WaterfallSettings,
 }
 
@@ -43,6 +45,8 @@ impl Default for AppState {
             morse_decoder: MorseDecoder::new(sample_rate, 20.0),
             modulation_mode: "None".to_string(),
             morse_enabled: false,
+            signal_strength_db: -120.0,
+            signal_detected: false,
             waterfall_settings: WaterfallSettings::default(),
         }
     }
@@ -51,6 +55,8 @@ impl Default for AppState {
 impl AppState {
     pub fn tick(&mut self) {
         let samples = self.generator.generate_samples(self.fft_size);
+        self.signal_strength_db = self.demodulator.signal_strength_db(&samples);
+        self.signal_detected = self.demodulator.detect_signal(&samples);
 
         if self.morse_enabled && self.modulation_mode.eq_ignore_ascii_case("CW") {
             let env = self.demodulator.demodulate_cw(&samples);

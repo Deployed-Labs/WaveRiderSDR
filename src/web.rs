@@ -28,6 +28,8 @@ struct StatusResponse {
     modulation_mode: String,
     morse_enabled: bool,
     morse_text: String,
+    signal_strength_db: f32,
+    signal_detected: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +111,8 @@ async fn get_status(State(state): State<SharedState>) -> impl IntoResponse {
         modulation_mode: guard.modulation_mode.clone(),
         morse_enabled: guard.morse_enabled,
         morse_text: guard.morse_decoder.decoded_text.clone(),
+        signal_strength_db: guard.signal_strength_db,
+        signal_detected: guard.signal_detected,
     })
 }
 
@@ -168,7 +172,11 @@ async fn set_config(
     }
 
     if let Some(enabled) = req.morse_enabled {
+        let was_enabled = guard.morse_enabled;
         guard.morse_enabled = enabled;
+        if enabled && !was_enabled {
+            guard.morse_decoder.reset();
+        }
         if enabled && !guard.modulation_mode.eq_ignore_ascii_case("CW") {
             guard.modulation_mode = "CW".to_string();
         }
