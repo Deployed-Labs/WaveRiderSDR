@@ -1,683 +1,414 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <title>WaveRider SDR - Cross-Platform Web Interface</title>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" 
-            integrity="sha384-IDrXfXPh5+d0ZZJzkSn9YN4KVRpGy92J7L5LyA9cOPWONWGXfZGQNDEOCQMqDRp+" 
-            crossorigin="anonymous"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
-            min-height: 100vh;
-            padding: 10px;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
-        
-        header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        header h1 {
-            font-size: clamp(1.5rem, 5vw, 2.5rem);
-            margin-bottom: 10px;
-        }
-        
-        header p {
-            font-size: clamp(0.9rem, 2vw, 1.1rem);
-            opacity: 0.9;
-        }
-        
-        .waterfall-container {
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        
-        #waterfall {
-            width: 100%;
-            height: auto;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            display: block;
-            background: #222;
-        }
-        
-        .controls {
-            padding: 20px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-        
-        .control-group {
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #e0e0e0;
-        }
-        
-        .control-group label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #555;
-            font-size: 0.9rem;
-        }
-        
-        .control-group input,
-        .control-group select {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 1rem;
-            transition: border-color 0.3s;
-        }
-        
-        .control-group input:focus,
-        .control-group select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .button-group {
-            grid-column: 1 / -1;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        
-        button {
-            flex: 1;
-            min-width: 120px;
-            padding: 15px 30px;
-            font-size: 1rem;
-            font-weight: 600;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .btn-start {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            color: white;
-        }
-        
-        .btn-start:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
-        }
-        
-        .btn-stop {
-            background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
-            color: white;
-        }
-        
-        .btn-stop:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(238, 9, 121, 0.4);
-        }
-        
-        .btn-secondary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .btn-secondary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-        
-        .btn-secondary.active {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        .status-bar {
-            padding: 15px 20px;
-            background: #2c3e50;
-            color: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-        
-        .status-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-        }
-        
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #95a5a6;
-            animation: pulse 2s infinite;
-        }
-        
-        .status-indicator.active {
-            background: #2ecc71;
-        }
-        
-        .status-indicator.error {
-            background: #e74c3c;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .info-panel {
-            padding: 20px;
-            background: #ecf0f1;
-            border-top: 3px solid #667eea;
-        }
-        
-        .info-panel h3 {
-            margin-bottom: 10px;
-            color: #2c3e50;
-        }
-        
-        .info-panel p {
-            color: #555;
-            line-height: 1.6;
-            font-size: 0.95rem;
-        }
-        
-        .device-info {
-            margin-top: 15px;
-            padding: 15px;
-            background: white;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-        }
-        
-        /* Responsive adjustments */
-        @media (max-width: 768px) {
-            .controls {
-                grid-template-columns: 1fr;
-            }
-            
-            .button-group {
-                flex-direction: column;
-            }
-            
-            button {
-                width: 100%;
-            }
-            
-            .status-bar {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-        }
-        
-        /* Mobile-specific optimizations */
-        @media (max-width: 480px) {
-            body {
-                padding: 5px;
-            }
-            
-            .container {
-                border-radius: 10px;
-            }
-            
-            header {
-                padding: 15px;
-            }
-            
-            .waterfall-container,
-            .controls,
-            .info-panel {
-                padding: 15px;
-            }
-        }
-        
-        /* Loading state */
-        .loading {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 400px;
-            font-size: 1.2rem;
-            color: #666;
-        }
-        
-        .loading::after {
-            content: '...';
-            animation: dots 1.5s infinite;
-        }
-        
-        @keyframes dots {
-            0%, 20% { content: '.'; }
-            40% { content: '..'; }
-            60%, 100% { content: '...'; }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WaveRider SDR (Rust)</title>
+  <style>
+    :root {
+      --bg: #0c1116;
+      --panel: #16202b;
+      --panel-2: #1d2a38;
+      --text: #dfe7ef;
+      --muted: #9db2c8;
+      --accent: #2cc7b7;
+      --danger: #f86f57;
+      --line: #2f4256;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: radial-gradient(circle at top right, #1a2938 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .layout {
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-header h2 {
+      margin: 0;
+      font-size: 0.98rem;
+      letter-spacing: 0.04em;
+    }
+
+    .pane {
+      padding: 12px;
+    }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+
+    .control {
+      min-width: 150px;
+      flex: 1 1 180px;
+    }
+
+    .control label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    input, select, button {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #101923;
+      color: var(--text);
+      padding: 10px;
+      font-size: 0.92rem;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+
+    .btn-start { background: linear-gradient(135deg, #1aa88f, var(--accent)); }
+    .btn-stop { background: linear-gradient(135deg, #d84e44, var(--danger)); }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr;
+    }
+
+    canvas {
+      width: 100%;
+      display: block;
+      background: #05090f;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+
+    #waveform { height: 180px; }
+    #waterfall { height: 320px; image-rendering: pixelated; }
+
+    .status {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    @media (max-width: 760px) {
+      .layout { margin: 12px auto; }
+      #waveform { height: 150px; }
+      #waterfall { height: 250px; }
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🌊 WaveRider SDR</h1>
-            <p>Cross-Platform Software Defined Radio - Works on Desktop & Mobile</p>
-        </header>
-        
-        <div class="waterfall-container">
-            <canvas id="waveform" width="800" height="200" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: block; background: #222; margin-bottom: 10px;"></canvas>
-            <img id="waterfall" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='400'%3E%3Crect width='800' height='400' fill='%23222'/%3E%3Ctext x='400' y='200' text-anchor='middle' fill='%23fff' font-size='20'%3EWaiting for data...%3C/text%3E%3C/svg%3E" alt="Waterfall Display">
+  <main class="layout">
+    <section class="card">
+      <div class="card-header">
+        <h2>WaveRider SDR (Rust Web)</h2>
+        <div id="runState">Stopped</div>
+      </div>
+      <div class="pane">
+        <div class="row">
+          <div class="control">
+            <label>Band</label>
+            <select id="bandSelect"></select>
+          </div>
+          <div class="control">
+            <label>Center Frequency (MHz)</label>
+            <input id="frequency" type="number" step="0.1" value="100" />
+          </div>
+          <div class="control">
+            <label>Sample Rate (Hz)</label>
+            <select id="sampleRate">
+              <option value="2400000">2400000</option>
+              <option value="2048000">2048000</option>
+              <option value="1024000">1024000</option>
+            </select>
+          </div>
+          <div class="control">
+            <label>FFT Size</label>
+            <select id="fftSize">
+              <option>512</option>
+              <option selected>1024</option>
+              <option>2048</option>
+              <option>4096</option>
+            </select>
+          </div>
+          <div class="control">
+            <label>Modulation</label>
+            <select id="modulation">
+              <option>None</option>
+              <option>AM</option>
+              <option>FM</option>
+              <option>USB</option>
+              <option>LSB</option>
+              <option>CW</option>
+            </select>
+          </div>
         </div>
-        
-        <div class="controls">
-            <div class="control-group">
-                <label for="band-select">Quick Band Navigation</label>
-                <select id="band-select">
-                    <option value="" selected>-- Select Band --</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label for="frequency">Center Frequency (MHz)</label>
-                <input type="number" id="frequency" value="100" min="24" max="1766" step="1">
-            </div>
-            
-            <div class="control-group">
-                <label for="sample-rate">Sample Rate</label>
-                <select id="sample-rate">
-                    <option value="2.4 MHz" selected>2.4 MHz</option>
-                    <option value="2.048 MHz">2.048 MHz</option>
-                    <option value="1.024 MHz">1.024 MHz</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label for="fft-size">FFT Size</label>
-                <select id="fft-size">
-                    <option value="512">512</option>
-                    <option value="1024" selected>1024</option>
-                    <option value="2048">2048</option>
-                    <option value="4096">4096</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label for="modulation">Modulation</label>
-                <select id="modulation">
-                    <option value="None" selected>None</option>
-                    <option value="AM">AM</option>
-                    <option value="FM">FM</option>
-                    <option value="USB">USB</option>
-                    <option value="LSB">LSB</option>
-                    <option value="CW">CW (Morse)</option>
-                </select>
-            </div>
-            
-            <div class="button-group">
-                <button id="morse-btn" class="btn-secondary" onclick="toggleMorse()">Enable Morse Decoder</button>
-            </div>
-            
-            <div class="button-group">
-                <button id="start-btn" class="btn-start" onclick="startAcquisition()">▶ Start</button>
-                <button id="stop-btn" class="btn-stop" onclick="stopAcquisition()">⏸ Stop</button>
-            </div>
+
+        <div class="row" style="margin-top:12px;">
+          <div class="control"><button id="startBtn" class="btn-start">Start</button></div>
+          <div class="control"><button id="stopBtn" class="btn-stop">Stop</button></div>
+          <div class="control">
+            <label>Min dB</label>
+            <input id="minDb" type="number" value="-80" />
+          </div>
+          <div class="control">
+            <label>Max dB</label>
+            <input id="maxDb" type="number" value="0" />
+          </div>
+          <div class="control">
+            <label>Squelch dB</label>
+            <input id="squelch" type="number" value="-50" />
+          </div>
+          <div class="control">
+            <label>Morse Decoder</label>
+            <select id="morseEnabled">
+              <option value="false">Disabled</option>
+              <option value="true">Enabled</option>
+            </select>
+          </div>
         </div>
-        
-        <!-- Morse code display area (initially hidden) -->
-        <div id="morse-display" style="display: none; padding: 20px; background: #f9f9f9; border-top: 2px solid #667eea;">
-            <h3 style="margin-bottom: 10px; color: #2c3e50;">Decoded Morse Code:</h3>
-            <div id="morse-text" style="padding: 15px; background: white; border: 2px solid #ddd; border-radius: 8px; min-height: 60px; font-family: monospace; font-size: 1.1rem; line-height: 1.6;">
-                <!-- Morse text will appear here -->
-            </div>
-        </div>
-        
-        <div class="status-bar">
-            <div class="status-item">
-                <span class="status-indicator" id="connection-indicator"></span>
-                <span id="connection-status">Connecting...</span>
-            </div>
-            <div class="status-item">
-                <span class="status-indicator" id="device-indicator"></span>
-                <span id="device-status">Checking for devices...</span>
-            </div>
-            <div class="status-item">
-                <span id="message-status">Ready</span>
-            </div>
-        </div>
-        
-        <div class="info-panel">
-            <h3>📱 Cross-Platform Compatibility</h3>
-            <p>
-                This web-based version of WaveRider SDR works on any device with a modern web browser:
-                <strong>Desktop computers (Windows, macOS, Linux), smartphones (iOS, Android), 
-                and tablets</strong>. Simply open this page in your browser to start monitoring 
-                radio frequencies in real-time.
-            </p>
-            <div class="device-info" id="device-info">
-                <strong>Platform Detected:</strong> <span id="platform-info">Detecting...</span>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        // Platform detection
-        function detectPlatform() {
-            const ua = navigator.userAgent;
-            let platform = 'Unknown';
-            
-            if (/Windows/i.test(ua)) platform = 'Windows Desktop';
-            else if (/Mac/i.test(ua) && !/iPhone|iPad|iPod/.test(ua)) platform = 'macOS Desktop';
-            else if (/Linux/i.test(ua) && !/Android/.test(ua)) platform = 'Linux Desktop';
-            else if (/Android/i.test(ua)) platform = 'Android Mobile/Tablet';
-            else if (/iPhone|iPad|iPod/.test(ua)) platform = 'iOS Mobile/Tablet';
-            
-            document.getElementById('platform-info').textContent = platform;
+      </div>
+    </section>
+
+    <section class="card grid">
+      <div class="pane">
+        <canvas id="waveform" width="1100" height="180"></canvas>
+      </div>
+      <div class="pane">
+        <canvas id="waterfall" width="1100" height="320"></canvas>
+      </div>
+      <div class="pane status" id="statusText">
+        <span>Mode: None</span>
+        <span>Morse: </span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const waveformCanvas = document.getElementById("waveform");
+    const waterfallCanvas = document.getElementById("waterfall");
+    const waveCtx = waveformCanvas.getContext("2d");
+    const wfCtx = waterfallCanvas.getContext("2d");
+
+    const controls = {
+      frequency: document.getElementById("frequency"),
+      sampleRate: document.getElementById("sampleRate"),
+      fftSize: document.getElementById("fftSize"),
+      modulation: document.getElementById("modulation"),
+      minDb: document.getElementById("minDb"),
+      maxDb: document.getElementById("maxDb"),
+      squelch: document.getElementById("squelch"),
+      morseEnabled: document.getElementById("morseEnabled"),
+      bandSelect: document.getElementById("bandSelect"),
+      runState: document.getElementById("runState"),
+      statusText: document.getElementById("statusText")
+    };
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        ...opts,
+      });
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return text; }
+    }
+
+    function dbToY(v, minDb, maxDb, h) {
+      const n = (v - minDb) / (maxDb - minDb);
+      return h - Math.max(0, Math.min(1, n)) * h;
+    }
+
+    function drawWaveform(data, minDb, maxDb) {
+      const w = waveformCanvas.width;
+      const h = waveformCanvas.height;
+      waveCtx.clearRect(0, 0, w, h);
+
+      waveCtx.strokeStyle = "#2f4256";
+      waveCtx.lineWidth = 1;
+      for (let i = 1; i <= 4; i++) {
+        const y = (h * i) / 5;
+        waveCtx.beginPath();
+        waveCtx.moveTo(0, y);
+        waveCtx.lineTo(w, y);
+        waveCtx.stroke();
+      }
+
+      if (!Array.isArray(data) || data.length < 2) {
+        return;
+      }
+
+      waveCtx.strokeStyle = "#2cc7b7";
+      waveCtx.lineWidth = 2;
+      waveCtx.beginPath();
+      for (let i = 0; i < data.length; i++) {
+        const x = (i / (data.length - 1)) * w;
+        const y = dbToY(data[i], minDb, maxDb, h);
+        if (i === 0) {
+          waveCtx.moveTo(x, y);
+        } else {
+          waveCtx.lineTo(x, y);
         }
-        
-        // Initialize Socket.IO connection
-        const socket = io();
-        
-        // Initialize Web Audio API for audio playback
-        let audioContext = null;
-        let audioQueue = [];
-        let isPlayingAudio = false;
-        
-        function initAudioContext() {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            return audioContext;
+      }
+      waveCtx.stroke();
+    }
+
+    function spectralColor(norm) {
+      const x = Math.max(0, Math.min(1, norm));
+      const r = Math.round(255 * Math.min(1, x * 2));
+      const g = Math.round(255 * Math.sin(Math.PI * x));
+      const b = Math.round(255 * (1 - x) * (1 - x));
+      return [r, g, b];
+    }
+
+    function drawWaterfall(matrix, minDb, maxDb) {
+      if (!Array.isArray(matrix) || !matrix.length || !Array.isArray(matrix[0])) {
+        return;
+      }
+
+      const rows = matrix.length;
+      const cols = matrix[0].length;
+      const image = wfCtx.createImageData(cols, rows);
+
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const v = matrix[y][x];
+          const n = (v - minDb) / (maxDb - minDb);
+          const [r, g, b] = spectralColor(n);
+          const idx = (y * cols + x) * 4;
+          image.data[idx] = r;
+          image.data[idx + 1] = g;
+          image.data[idx + 2] = b;
+          image.data[idx + 3] = 255;
         }
-        
-        // Handle incoming audio data
-        socket.on('audio_data', function(data) {
-            if (!initAudioContext()) return;
-            
-            try {
-                // Decode base64 audio data
-                const audioData = atob(data.data);
-                const audioArray = new Float32Array(audioData.length / 4);
-                
-                // Convert bytes to float32 array
-                const dataView = new DataView(new ArrayBuffer(audioData.length));
-                for (let i = 0; i < audioData.length; i++) {
-                    dataView.setUint8(i, audioData.charCodeAt(i));
-                }
-                
-                for (let i = 0; i < audioArray.length; i++) {
-                    audioArray[i] = dataView.getFloat32(i * 4, true);
-                }
-                
-                // Create audio buffer
-                const audioBuffer = audioContext.createBuffer(1, audioArray.length, data.sample_rate);
-                audioBuffer.getChannelData(0).set(audioArray);
-                
-                // Create buffer source and play
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(audioContext.destination);
-                source.start();
-                
-            } catch (err) {
-                console.error('Error playing audio:', err);
-            }
-        });
-        
-        // Connection status
-        socket.on('connect', function() {
-            document.getElementById('connection-status').textContent = 'Connected';
-            document.getElementById('connection-indicator').classList.add('active');
-            checkStatus();
-            // Request band list on connection
-            socket.emit('get_bands');
-        });
-        
-        socket.on('disconnect', function() {
-            document.getElementById('connection-status').textContent = 'Disconnected';
-            document.getElementById('connection-indicator').classList.remove('active');
-            document.getElementById('connection-indicator').classList.add('error');
-        });
-        
-        // Receive band list
-        socket.on('bands_list', function(data) {
-            const bandSelect = document.getElementById('band-select');
-            // Clear existing options except first
-            while (bandSelect.options.length > 1) {
-                bandSelect.remove(1);
-            }
-            // Add all bands
-            data.bands.forEach(function(band) {
-                const option = document.createElement('option');
-                option.value = band;
-                option.textContent = band;
-                bandSelect.appendChild(option);
-            });
-        });
-        
-        // Handle band change from server
-        socket.on('band_changed', function(data) {
-            document.getElementById('frequency').value = data.frequency.toFixed(3);
-            document.getElementById('modulation').value = data.modulation;
-        });
-        
-        // Status updates
-        socket.on('status', function(data) {
-            document.getElementById('message-status').textContent = data.message;
-        });
-        
-        // Waterfall updates
-        socket.on('waterfall_update', function(data) {
-            const img = document.getElementById('waterfall');
-            img.src = 'data:image/png;base64,' + data.image;
-        });
-        
-        // Waveform updates (uses same FFT data as waterfall)
-        socket.on('waveform_update', function(data) {
-            const canvas = document.getElementById('waveform');
-            const ctx = canvas.getContext('2d');
-            const fftData = data.data;
-            const minDb = data.min_db;
-            const maxDb = data.max_db;
-            const freqStart = data.freq_start;
-            const freqEnd = data.freq_end;
-            const w = canvas.width;
-            const h = canvas.height;
-            const padding = {top: 20, right: 10, bottom: 30, left: 50};
-            const plotW = w - padding.left - padding.right;
-            const plotH = h - padding.top - padding.bottom;
-            
-            ctx.clearRect(0, 0, w, h);
-            
-            // Background
-            ctx.fillStyle = '#1a1a2e';
-            ctx.fillRect(0, 0, w, h);
-            
-            // Grid
-            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-            ctx.lineWidth = 0.5;
-            for (let gi = 0; gi <= 4; gi++) {
-                let gy = padding.top + (plotH * gi / 4);
-                ctx.beginPath();
-                ctx.moveTo(padding.left, gy);
-                ctx.lineTo(padding.left + plotW, gy);
-                ctx.stroke();
-            }
-            for (let gi = 0; gi <= 4; gi++) {
-                let gx = padding.left + (plotW * gi / 4);
-                ctx.beginPath();
-                ctx.moveTo(gx, padding.top);
-                ctx.lineTo(gx, padding.top + plotH);
-                ctx.stroke();
-            }
-            
-            // Draw waveform line
-            ctx.strokeStyle = '#00e5ff';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            for (let i = 0; i < fftData.length; i++) {
-                let x = padding.left + (i / (fftData.length - 1)) * plotW;
-                let dbVal = Math.max(minDb, Math.min(maxDb, fftData[i]));
-                let y = padding.top + plotH - ((dbVal - minDb) / (maxDb - minDb)) * plotH;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            
-            // Axis labels
-            ctx.fillStyle = '#aaa';
-            ctx.font = '10px sans-serif';
-            ctx.textAlign = 'center';
-            for (let ti = 0; ti <= 4; ti++) {
-                let freq = freqStart + (freqEnd - freqStart) * ti / 4;
-                let tx = padding.left + (plotW * ti / 4);
-                ctx.fillText(freq.toFixed(2) + ' MHz', tx, h - 5);
-            }
-            ctx.textAlign = 'right';
-            for (let ti = 0; ti <= 4; ti++) {
-                let db = maxDb - (maxDb - minDb) * ti / 4;
-                let ty = padding.top + (plotH * ti / 4);
-                ctx.fillText(db.toFixed(0) + ' dB', padding.left - 5, ty + 3);
-            }
-            
-            // Title
-            ctx.fillStyle = '#ccc';
-            ctx.font = '12px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('Waveform Display (Spectrum)', w / 2, 14);
-        });
-        
-        // Control functions
-        function startAcquisition() {
-            socket.emit('start');
-            document.getElementById('message-status').textContent = 'Starting...';
-        }
-        
-        function stopAcquisition() {
-            socket.emit('stop');
-            document.getElementById('message-status').textContent = 'Stopping...';
-        }
-        
-        // Event listeners for controls
-        document.getElementById('band-select').addEventListener('change', function() {
-            if (this.value) {
-                socket.emit('set_band', { band: this.value });
-                // Reset to default after selection
-                setTimeout(() => { this.value = ''; }, 500);
-            }
-        });
-        
-        document.getElementById('frequency').addEventListener('change', function() {
-            socket.emit('set_frequency', { frequency: this.value });
-        });
-        
-        document.getElementById('sample-rate').addEventListener('change', function() {
-            socket.emit('set_sample_rate', { rate: this.value });
-        });
-        
-        document.getElementById('fft-size').addEventListener('change', function() {
-            socket.emit('set_fft_size', { size: this.value });
-        });
-        
-        document.getElementById('modulation').addEventListener('change', function() {
-            socket.emit('set_modulation', { mode: this.value });
-        });
-        
-        // Morse decoder state
-        let morseEnabled = false;
-        
-        function toggleMorse() {
-            morseEnabled = !morseEnabled;
-            const morseBtn = document.getElementById('morse-btn');
-            const morseDisplay = document.getElementById('morse-display');
-            
-            if (morseEnabled) {
-                morseBtn.textContent = 'Disable Morse Decoder';
-                morseBtn.classList.add('active');
-                morseDisplay.style.display = 'block';
-                document.getElementById('morse-text').textContent = '';
-                
-                // Auto-set modulation to CW
-                document.getElementById('modulation').value = 'CW';
-                socket.emit('set_modulation', { mode: 'CW' });
-            } else {
-                morseBtn.textContent = 'Enable Morse Decoder';
-                morseBtn.classList.remove('active');
-                morseDisplay.style.display = 'none';
-            }
-            
-            socket.emit('toggle_morse', { enabled: morseEnabled });
-        }
-        
-        // Morse updates
-        socket.on('morse_update', function(data) {
-            const morseText = document.getElementById('morse-text');
-            morseText.textContent += data.text;
-            // Auto-scroll to bottom
-            morseText.scrollTop = morseText.scrollHeight;
-        });
-        
-        // Check device status
-        function checkStatus() {
-            fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    const deviceStatus = document.getElementById('device-status');
-                    const deviceIndicator = document.getElementById('device-indicator');
-                    
-                    if (data.meshtastic_detected) {
-                        deviceStatus.textContent = 'Meshtastic Device Connected';
-                        deviceIndicator.classList.add('active');
-                    } else {
-                        deviceStatus.textContent = 'No Meshtastic Device';
-                        deviceIndicator.classList.remove('active');
-                    }
-                })
-                .catch(err => {
-                    console.error('Error checking status:', err);
-                });
-        }
-        
-        // Initialize
-        detectPlatform();
-        
-        // Auto-start on load (optional)
-        window.addEventListener('load', function() {
-            setTimeout(startAcquisition, 1000);
-        });
-        
-        // Periodic status check
-        setInterval(checkStatus, 5000);
-    </script>
+      }
+
+      const offscreen = document.createElement("canvas");
+      offscreen.width = cols;
+      offscreen.height = rows;
+      const offCtx = offscreen.getContext("2d");
+      offCtx.putImageData(image, 0, 0);
+      wfCtx.clearRect(0, 0, waterfallCanvas.width, waterfallCanvas.height);
+      wfCtx.drawImage(offscreen, 0, 0, waterfallCanvas.width, waterfallCanvas.height);
+    }
+
+    async function refreshStatus() {
+      const s = await api("/api/status");
+      controls.runState.textContent = s.running ? "Running" : "Stopped";
+      controls.frequency.value = (s.center_freq / 1000000).toFixed(3);
+      controls.modulation.value = s.modulation_mode;
+      controls.morseEnabled.value = String(s.morse_enabled);
+      controls.statusText.innerHTML = `<span>Mode: ${s.modulation_mode}</span><span>Morse: ${s.morse_text || "(none)"}</span>`;
+    }
+
+    async function refreshFrame() {
+      const frame = await api("/api/frame");
+      drawWaveform(frame.waveform, frame.min_db, frame.max_db);
+      drawWaterfall(frame.waterfall, frame.min_db, frame.max_db);
+    }
+
+    async function sendConfig() {
+      await api("/api/config", {
+        method: "POST",
+        body: JSON.stringify({
+          frequency_mhz: Number(controls.frequency.value),
+          sample_rate_hz: Number(controls.sampleRate.value),
+          fft_size: Number(controls.fftSize.value),
+          modulation_mode: controls.modulation.value,
+          min_db: Number(controls.minDb.value),
+          max_db: Number(controls.maxDb.value),
+          squelch_db: Number(controls.squelch.value),
+          morse_enabled: controls.morseEnabled.value === "true",
+        }),
+      });
+    }
+
+    async function loadBands() {
+      const bands = await api("/api/bands");
+      controls.bandSelect.innerHTML = `<option value="">-- Select Band --</option>`;
+      for (const b of bands) {
+        const opt = document.createElement("option");
+        opt.value = b.name;
+        opt.textContent = `${b.name} (${b.mode})`;
+        controls.bandSelect.appendChild(opt);
+      }
+    }
+
+    document.getElementById("startBtn").addEventListener("click", async () => {
+      await api("/api/start", { method: "POST" });
+      await refreshStatus();
+    });
+
+    document.getElementById("stopBtn").addEventListener("click", async () => {
+      await api("/api/stop", { method: "POST" });
+      await refreshStatus();
+    });
+
+    controls.bandSelect.addEventListener("change", async () => {
+      if (!controls.bandSelect.value) return;
+      await api("/api/set_band", {
+        method: "POST",
+        body: JSON.stringify({ band: controls.bandSelect.value }),
+      });
+      await refreshStatus();
+    });
+
+    [
+      controls.frequency,
+      controls.sampleRate,
+      controls.fftSize,
+      controls.modulation,
+      controls.minDb,
+      controls.maxDb,
+      controls.squelch,
+      controls.morseEnabled,
+    ].forEach((el) => {
+      el.addEventListener("change", async () => {
+        await sendConfig();
+      });
+    });
+
+    async function loop() {
+      await refreshStatus();
+      await refreshFrame();
+      setTimeout(loop, 120);
+    }
+
+    loadBands().then(loop);
+  </script>
 </body>
 </html>
