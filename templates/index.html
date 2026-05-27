@@ -125,6 +125,11 @@
       color: var(--muted);
     }
 
+    .status-warning {
+      width: 100%;
+      color: #ffb570;
+    }
+
     @media (max-width: 760px) {
       .layout { margin: 12px auto; }
       #waveform { height: 150px; }
@@ -202,6 +207,16 @@
             </select>
           </div>
         </div>
+
+        <div class="row" style="margin-top:12px;">
+          <div class="control">
+            <label>SDR Device</label>
+            <select id="sdrDeviceSelect"></select>
+          </div>
+          <div class="control"><button id="scanSdrBtn">Scan SDR</button></div>
+          <div class="control"><button id="connectSdrBtn">Connect SDR</button></div>
+          <div class="control"><button id="disconnectSdrBtn">Disconnect SDR</button></div>
+        </div>
       </div>
     </section>
 
@@ -215,6 +230,9 @@
       <div class="pane status" id="statusText">
         <span>Mode: None</span>
         <span>Morse: </span>
+        <span>Source: Simulated</span>
+        <span>Signal: -120.0 dB</span>
+        <span>Meshtastic: none</span>
       </div>
     </section>
   </main>
@@ -235,6 +253,10 @@
       squelch: document.getElementById("squelch"),
       morseEnabled: document.getElementById("morseEnabled"),
       bandSelect: document.getElementById("bandSelect"),
+      sdrDeviceSelect: document.getElementById("sdrDeviceSelect"),
+      scanSdrBtn: document.getElementById("scanSdrBtn"),
+      connectSdrBtn: document.getElementById("connectSdrBtn"),
+      disconnectSdrBtn: document.getElementById("disconnectSdrBtn"),
       runState: document.getElementById("runState"),
       statusText: document.getElementById("statusText")
     };
@@ -332,7 +354,42 @@
       controls.frequency.value = (s.center_freq / 1000000).toFixed(3);
       controls.modulation.value = s.modulation_mode;
       controls.morseEnabled.value = String(s.morse_enabled);
-      controls.statusText.innerHTML = `<span>Mode: ${s.modulation_mode}</span><span>Morse: ${s.morse_text || "(none)"}</span>`;
+      const meshtasticText = s.meshtastic_devices && s.meshtastic_devices.length
+        ? s.meshtastic_devices.map((d) => d.port).join(", ")
+        : "none";
+      controls.statusText.innerHTML =
+        `<span>Mode: ${s.modulation_mode}</span>` +
+        `<span>Morse: ${s.morse_text || "(none)"}</span>` +
+        `<span>Source: ${s.source}</span>` +
+        `<span>Signal: ${Number(s.signal_strength_db).toFixed(1)} dB ${s.signal_detected ? "(active)" : "(quiet)"}</span>` +
+        `<span>Meshtastic: ${meshtasticText}</span>` +
+        `${s.source_notice ? `<span class="status-warning">${s.source_notice}</span>` : ""}`;
+
+      if (Array.isArray(s.sdr_devices)) {
+        const existing = new Set(Array.from(controls.sdrDeviceSelect.options).map((o) => o.value));
+        if (existing.size === 0 || existing.size !== s.sdr_devices.length + 1) {
+          populateSdrDevices(s.sdr_devices, s.connected_sdr_id);
+        }
+      }
+    }
+
+    function populateSdrDevices(devices, connectedId) {
+      controls.sdrDeviceSelect.innerHTML = `<option value="">-- Select SDR --</option>`;
+      for (const d of devices) {
+        const opt = document.createElement("option");
+        opt.value = d.id;
+        opt.textContent = `${d.device_type}: ${d.name}`;
+        if (connectedId && d.id === connectedId) {
+          opt.selected = true;
+        }
+        controls.sdrDeviceSelect.appendChild(opt);
+      }
+    }
+
+    async function refreshSdrDevices() {
+      const res = await api("/api/sdr_devices");
+      const devices = Array.isArray(res.devices) ? res.devices : [];
+      populateSdrDevices(devices, res.connected_sdr_id || null);
     }
 
     async function refreshFrame() {
@@ -378,6 +435,27 @@
       await refreshStatus();
     });
 
+    controls.scanSdrBtn.addEventListener("click", async () => {
+      await refreshSdrDevices();
+      await refreshStatus();
+    });
+
+    controls.connectSdrBtn.addEventListener("click", async () => {
+      if (!controls.sdrDeviceSelect.value) {
+        return;
+      }
+      await api("/api/connect_sdr", {
+        method: "POST",
+        body: JSON.stringify({ device_id: controls.sdrDeviceSelect.value }),
+      });
+      await refreshStatus();
+    });
+
+    controls.disconnectSdrBtn.addEventListener("click", async () => {
+      await api("/api/disconnect_sdr", { method: "POST" });
+      await refreshStatus();
+    });
+
     controls.bandSelect.addEventListener("change", async () => {
       if (!controls.bandSelect.value) return;
       await api("/api/set_band", {
@@ -408,7 +486,7 @@
       setTimeout(loop, 120);
     }
 
-    loadBands().then(loop);
+    Promise.all([loadBands(), refreshSdrDevices()]).then(loop);
   </script>
 </body>
 </html>

@@ -1,5 +1,4 @@
 use num_complex::Complex32;
-use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use rustfft::FftPlanner;
 
@@ -78,14 +77,12 @@ pub fn compute_fft_db(samples: &[Complex32], fft_size: usize) -> Vec<f32> {
 
 #[derive(Debug, Clone)]
 pub struct Demodulator {
-    sample_rate: f32,
     pub squelch_db: f32,
 }
 
 impl Demodulator {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new(_sample_rate: f32) -> Self {
         Self {
-            sample_rate,
             squelch_db: -50.0,
         }
     }
@@ -109,9 +106,5 @@ impl Demodulator {
 
     pub fn demodulate_cw(&self, samples: &[Complex32]) -> Vec<f32> {
         samples.iter().map(|s| s.norm()).collect()
-    }
-
-    pub fn _sample_rate(&self) -> f32 {
-        self.sample_rate
     }
 }
