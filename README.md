@@ -10,6 +10,8 @@ WaveRider SDR has been migrated from Python to Rust.
 - FFT + waterfall + waveform processing
 - CW envelope decoding with Morse text extraction
 - Band presets API and UI
+- Meshtastic USB detection via serial ports (VID/product matching)
+- SDR management endpoints for scan/connect/disconnect
 
 ## Project Layout
 
@@ -20,6 +22,7 @@ WaveRider SDR has been migrated from Python to Rust.
 - `src/morse.rs`: Morse decoder
 - `src/band_plan.rs`: frequency band definitions
 - `src/common.rs`: waterfall settings and hardware placeholders
+	Device detection and SDR connection state management
 - `templates/index.html`: web dashboard
 
 ## Quick Start
@@ -55,5 +58,13 @@ Legacy Python files remain only as compatibility shims and no longer contain SDR
 ## Status
 
 - Rust migration complete for launcher, shared DSP engine, and web interface.
-- Hardware SDR backends (RTL-SDR/HackRF) are currently placeholders in Rust and can be added behind feature flags in a follow-up.
+- Hardware tool detection for RTL-SDR/HackRF is implemented (PATH/tool based).
+- Direct IQ capture backends for RTL-SDR/HackRF are still pending; signal processing currently runs on simulated samples.
+
+## Device APIs
+
+- `GET /api/sdr_devices`: returns detected SDR tool-backed devices and current connection id
+- `POST /api/connect_sdr` with `{ "device_id": "..." }`: marks selected SDR device as active source
+- `POST /api/disconnect_sdr`: clears active SDR source
+- `GET /api/status`: includes source label, Meshtastic devices, SDR devices, and signal telemetry
 
