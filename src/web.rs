@@ -13,6 +13,7 @@ use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 
 use crate::band_plan::{get_band, BANDS};
+use crate::common::{MeshtasticDeviceInfo, SdrDeviceInfo};
 use crate::state::AppState;
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -25,11 +26,15 @@ struct StatusResponse {
     fft_size: usize,
     sdr_connected: bool,
     meshtastic_detected: bool,
+    meshtastic_devices: Vec<MeshtasticDeviceInfo>,
+    sdr_devices: Vec<SdrDeviceInfo>,
+    connected_sdr_id: Option<String>,
     modulation_mode: String,
     morse_enabled: bool,
     morse_text: String,
     signal_strength_db: f32,
     signal_detected: bool,
+    source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,6 +65,17 @@ pub struct SetBandRequest {
     pub band: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ConnectSdrRequest {
+    pub device_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SdrDevicesResponse {
+    pub devices: Vec<SdrDeviceInfo>,
+    pub connected_sdr_id: Option<String>,
+}
+
 pub async fn run_web(host: &str, port: u16) -> Result<()> {
     let state: SharedState = Arc::new(RwLock::new(AppState::default()));
     spawn_update_loop(state.clone());
@@ -68,6 +84,9 @@ pub async fn run_web(host: &str, port: u16) -> Result<()> {
 
     let app = Router::new()
         .route("/api/status", get(get_status))
+        .route("/api/sdr_devices", get(get_sdr_devices))
+        .route("/api/connect_sdr", post(connect_sdr))
+        .route("/api/disconnect_sdr", post(disconnect_sdr))
         .route("/api/frame", get(get_frame))
         .route("/api/start", post(start))
         .route("/api/stop", post(stop))
@@ -99,7 +118,9 @@ fn spawn_update_loop(state: SharedState) {
 
 async fn get_status(State(state): State<SharedState>) -> impl IntoResponse {
     let guard = state.read().await;
-    let devices = guard.detector.detect_devices();
+    let meshtastic_devices = guard.detector.detect_devices();
+    let sdr_devices = guard.sdr.detect_devices();
+    let connected_sdr_id = guard.sdr.connected_device.as_ref().map(|d| d.id.clone());
 
     Json(StatusResponse {
         running: guard.running,
@@ -107,13 +128,40 @@ async fn get_status(State(state): State<SharedState>) -> impl IntoResponse {
         center_freq: guard.center_freq,
         fft_size: guard.fft_size,
         sdr_connected: guard.sdr.is_connected,
-        meshtastic_detected: !devices.is_empty(),
+        meshtastic_detected: !meshtastic_devices.is_empty(),
+        meshtastic_devices,
+        sdr_devices,
+        connected_sdr_id,
         modulation_mode: guard.modulation_mode.clone(),
         morse_enabled: guard.morse_enabled,
         morse_text: guard.morse_decoder.decoded_text.clone(),
         signal_strength_db: guard.signal_strength_db,
         signal_detected: guard.signal_detected,
+        source: guard.sdr.source_label(),
     })
+}
+
+async fn get_sdr_devices(State(state): State<SharedState>) -> impl IntoResponse {
+    let guard = state.read().await;
+    Json(SdrDevicesResponse {
+        devices: guard.sdr.detect_devices(),
+        connected_sdr_id: guard.sdr.connected_device.as_ref().map(|d| d.id.clone()),
+    })
+}
+
+async fn connect_sdr(
+    State(state): State<SharedState>,
+    Json(req): Json<ConnectSdrRequest>,
+) -> impl IntoResponse {
+    let mut guard = state.write().await;
+    let ok = guard.sdr.connect(&req.device_id);
+    Json(if ok { "connected" } else { "device_not_found" })
+}
+
+async fn disconnect_sdr(State(state): State<SharedState>) -> impl IntoResponse {
+    let mut guard = state.write().await;
+    guard.sdr.disconnect();
+    Json("disconnected")
 }
 
 async fn get_frame(State(state): State<SharedState>) -> impl IntoResponse {
