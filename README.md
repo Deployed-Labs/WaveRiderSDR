@@ -69,6 +69,9 @@ For web-only mode with explicit host/port:
 
 GitHub Actions now builds a portable Windows ZIP on every push to `main` and every `v*` tag.
 
+Version tags are managed as patch increments: each release tag must increase by exactly `0.0.1` (for example, `v0.0.7` -> `v0.0.8`).
+On pushes to `main`, the workflow automatically creates and pushes the next patch tag.
+
 - Main branch artifacts: downloadable from the workflow run artifacts
 - Tag builds: attached to the GitHub Release
 

@@ -20,6 +20,82 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Create next patch tag on main
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+
+          $headTags = git tag --points-at HEAD | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' }
+          if ($headTags) {
+            $existing = $headTags | Select-Object -First 1
+            Write-Host "Semantic version tag already exists on this commit: $existing"
+            "AUTO_TAG=$existing" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit 0
+          }
+
+          $latest = git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | Select-Object -First 1
+
+          if ([string]::IsNullOrWhiteSpace($latest)) {
+            $nextTag = "v0.0.1"
+          } else {
+            if ($latest -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+              throw "Latest semantic version tag is invalid: $latest"
+            }
+            $major = [int]$Matches[1]
+            $minor = [int]$Matches[2]
+            $patch = [int]$Matches[3] + 1
+            $nextTag = "v$major.$minor.$patch"
+          }
+
+          git tag $nextTag
+          git push origin $nextTag
+          Write-Host "Created and pushed tag $nextTag"
+          "AUTO_TAG=$nextTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Enforce patch increment for tag releases
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+
+          $current = "$env:GITHUB_REF_NAME"
+          if ($current -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+            throw "Tag '$current' is invalid. Expected format vMAJOR.MINOR.PATCH (example: v0.0.1)."
+          }
+
+          $currMajor = [int]$Matches[1]
+          $currMinor = [int]$Matches[2]
+          $currPatch = [int]$Matches[3]
+
+          $previous = git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname |
+            Where-Object { $_ -ne $current } |
+            Select-Object -First 1
+
+          if ([string]::IsNullOrWhiteSpace($previous)) {
+            if ($current -ne "v0.0.1") {
+              throw "First release tag must be v0.0.1 when enforcing +0.0.1 patch increments."
+            }
+            exit 0
+          }
+
+          if ($previous -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+            throw "Previous semantic version tag is invalid: $previous"
+          }
+
+          $prevMajor = [int]$Matches[1]
+          $prevMinor = [int]$Matches[2]
+          $prevPatch = [int]$Matches[3]
+
+          $expectedTag = "v$prevMajor.$prevMinor.$($prevPatch + 1)"
+          if ($current -ne $expectedTag) {
+            throw "Invalid tag sequence: previous=$previous, current=$current, expected=$expectedTag (must increase by 0.0.1)."
+          }
+
+          if ($currMajor -ne $prevMajor -or $currMinor -ne $prevMinor) {
+            throw "Major/minor changes are not allowed. Tags must increase only by 0.0.1."
+          }
+
       - name: Ensure tag commit is on main
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
