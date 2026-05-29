@@ -6,8 +6,10 @@
 
 ## Windows (Release)
 
-1. Download and run the MSI from Releases.
-2. Launch WaveRiderSDR from the desktop shortcut.
+1. Download the latest MSI:
+	https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest/download/WaveRiderSDR-windows-x64.msi
+2. Run the MSI installer.
+3. Launch WaveRiderSDR from the desktop shortcut.
 
 ## Run
 

@@ -65,23 +65,17 @@ For web-only mode with explicit host/port:
 .\target\release\waverider_sdr.exe --mode web --host 0.0.0.0 --port 5000
 ```
 
-## Portable ZIP Releases (Windows)
+## Windows MSI Release
 
-GitHub Actions now builds a portable Windows ZIP on every push to `main` and every `v*` tag.
+GitHub Actions publishes a single MSI installer for each version tag.
 
-Version tags are managed as patch increments: each release tag must increase by exactly `0.0.1` (for example, `v0.0.7` -> `v0.0.8`).
+- Latest MSI download: https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest/download/WaveRiderSDR-windows-x64.msi
+- Releases page: https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest
+
+The MSI installs WaveRiderSDR and creates a desktop shortcut.
+
+Version tags are managed as patch increments: each release tag increases by `0.0.1`.
 On pushes to `main`, the workflow automatically creates and pushes the next patch tag.
-
-- Main branch artifacts: downloadable from the workflow run artifacts
-- Tag builds: attached to the GitHub Release
-
-Each portable ZIP includes:
-
-- `waverider_sdr.exe`
-- `templates/`
-- `run-gui.bat` (starts GUI mode)
-- `run-web.bat` (starts web mode, optional port argument)
-- `README.md` and `LICENSE`
 
 ## Modes
 

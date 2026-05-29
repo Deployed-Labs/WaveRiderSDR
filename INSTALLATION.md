@@ -4,7 +4,8 @@
 
 ### Release install (recommended)
 
-1. Download the single MSI artifact from Releases.
+1. Download the latest MSI:
+	https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest/download/WaveRiderSDR-windows-x64.msi
 2. Run the MSI.
 3. Use the created desktop shortcut: WaveRiderSDR.
 

@@ -122,18 +122,24 @@ jobs:
         run: cargo build --release --locked
 
       - name: Build MSI installer
+        id: build_msi
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "main-${{ github.sha }}".Substring(0, 17) }
-          cargo wix --no-build --output release-assets/waverider_sdr-$version-windows-x64.msi
-          "MSI_NAME=waverider_sdr-$version-windows-x64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $msiName = "WaveRiderSDR-windows-x64"
+          } else {
+            $shortSha = "${{ github.sha }}".Substring(0, 12)
+            $msiName = "waverider_sdr-main-$shortSha-windows-x64"
+          }
+          cargo wix --no-build --output release-assets/$msiName.msi
+          "msi_name=$msiName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.MSI_NAME }}
-          path: release-assets/${{ env.MSI_NAME }}.msi
+          name: ${{ steps.build_msi.outputs.msi_name }}
+          path: release-assets/${{ steps.build_msi.outputs.msi_name }}.msi
 
       - name: Publish GitHub release assets
         if: startsWith(github.ref, 'refs/tags/')
@@ -141,8 +147,9 @@ jobs:
         with:
           name: WaveRider SDR ${{ github.ref_name }}
           files: |
-            release-assets/${{ env.MSI_NAME }}.msi
+            release-assets/${{ steps.build_msi.outputs.msi_name }}.msi
           generate_release_notes: true
+          make_latest: true
           prerelease: ${{ contains(github.ref_name, 'a') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
