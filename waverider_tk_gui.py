@@ -12,6 +12,9 @@ import numpy as np
 
 _PRESETS_FILE = pathlib.Path(__file__).with_name("waverider_presets.json")
 
+# Pre-built hex lookup table — avoids per-pixel f-string calls in the waterfall hot path.
+_WF_HEX: list[str] = [f"{i:02x}" for i in range(256)]
+
 from waverider_common import AppState, BANDS
 
 
@@ -35,6 +38,7 @@ class WaveRiderTkGui:
         self.preset_slots: list[dict[str, float | str] | None] = [None, None, None]
         self.spectrum_marker_ratio = 0.5
         self._startup_alpha = 0.0
+        self._wf_pos: int = -1  # circular-buffer write pointer; -1 = needs init
         self._load_presets()
         self._build_ui()
         self._refresh_preset_buttons()
@@ -634,6 +638,7 @@ class WaveRiderTkGui:
 
     def _on_waterfall_resize(self, _event: tk.Event) -> None:
         self.waterfall_photo = None
+        self._wf_pos = -1
 
     def _on_band_change(self, _event: tk.Event) -> None:
         band_name = self.band_var.get()
@@ -693,20 +698,20 @@ class WaveRiderTkGui:
 
     def _schedule_update(self) -> None:
         self._update_frame()
-        self.root.after(120, self._schedule_update)
+        self.root.after(50, self._schedule_update)
 
     def _update_frame(self) -> None:
         with self.state.lock:
             if self.state.running:
                 self.state.tick()
             waveform = self.state.waveform_data.copy()
-            waterfall = self.state.waterfall_data.copy()
             status = self.state.get_status()
             min_db = self.state.waterfall_settings.min_db
             max_db = self.state.waterfall_settings.max_db
 
         self._draw_spectrum(waveform, min_db, max_db)
-        self._draw_waterfall(waterfall, min_db, max_db)
+        if status.get("running"):
+            self._draw_waterfall(waveform, min_db, max_db)
 
         self.status_var.set(f"{'Running' if status['running'] else 'Stopped'}")
         self.notice_var.set(str(status.get("source_notice") or ""))
@@ -785,48 +790,59 @@ class WaveRiderTkGui:
         canvas.create_rectangle(0, 0, fill_width, height, fill=color, outline="")
         canvas.create_text(10, height // 2, text=f"{signal_db:.1f} dB", anchor="w", fill=self.colors["text"], font=("Segoe UI", 9, "bold"))
 
-    def _draw_waterfall(self, matrix: np.ndarray, min_db: float, max_db: float) -> None:
+    def _draw_waterfall(self, spectrum_row: np.ndarray, min_db: float, max_db: float) -> None:
+        """Incremental circular-buffer waterfall: encodes only 1 new row per frame."""
         canvas = self.waterfall_canvas
-        rows, cols = matrix.shape
         width = max(1, canvas.winfo_width())
         height = max(1, canvas.winfo_height())
-        if rows == 0 or cols == 0 or width <= 1 or height <= 1:
+        if width <= 1 or height <= 1 or spectrum_row.size < 2:
             return
 
-        step_x = max(1, cols // max(240, width // 4))
-        step_y = max(1, rows // max(120, height // 4))
-
-        reduced = matrix[::step_y, ::step_x]
-        r_rows, r_cols = reduced.shape
-        if r_rows == 0 or r_cols == 0:
-            return
+        # The PhotoImage is 2× the canvas height so the circular buffer has no
+        # seam: we write each row to two symmetric positions and position the
+        # canvas item so the newest row always appears at y=0.
+        photo_h = height * 2
+        if (
+            self.waterfall_photo is None
+            or self.waterfall_photo.width() != width
+            or self.waterfall_photo.height() != photo_h
+        ):
+            self.waterfall_photo = tk.PhotoImage(width=width, height=photo_h)
+            canvas.delete("waterfall_image")
+            canvas.create_image(0, 0, anchor="nw", image=self.waterfall_photo, tags="waterfall_image")  # type: ignore[attr-defined]
+            self._wf_pos = height - 1
 
         if max_db <= min_db:
             max_db = min_db + 1.0
 
-        resized = np.repeat(reduced, max(1, height // r_rows), axis=0)
-        resized = np.repeat(resized, max(1, width // r_cols), axis=1)
-        resized = resized[:height, :width]
+        # Resample the spectrum to the exact display width using one numpy index.
+        indices = np.linspace(0, spectrum_row.size - 1, width).astype(np.intp)
+        row_db = spectrum_row[indices]
 
-        norm = (resized - min_db) / (max_db - min_db)
-        norm = np.clip(norm, 0.0, 1.0)
+        norm = np.clip(
+            (row_db.astype(np.float32) - min_db) / (max_db - min_db), 0.0, 1.0
+        )
+        r = np.clip(norm * 2.0 * 255.0, 0.0, 255.0).astype(np.uint8)
+        g = np.clip(np.sin(np.pi * norm) * 255.0, 0.0, 255.0).astype(np.uint8)
+        inv = np.float32(1.0) - norm
+        b = np.clip(inv * inv * 255.0, 0.0, 255.0).astype(np.uint8)
 
-        red = np.clip((norm * 2.0) * 255.0, 0, 255).astype(np.uint8)
-        green = np.clip(np.sin(np.pi * norm) * 255.0, 0, 255).astype(np.uint8)
-        blue = np.clip((1.0 - norm) * (1.0 - norm) * 255.0, 0, 255).astype(np.uint8)  # type: ignore[operator]
-        rgb = np.stack((red, green, blue), axis=-1)
+        # Build the single-row Tcl colour string using the pre-built LUT.
+        # This is O(width) not O(width × height) — the key speedup.
+        row_str = "{" + " ".join(
+            "#" + _WF_HEX[int(rv)] + _WF_HEX[int(gv)] + _WF_HEX[int(bv)]
+            for rv, gv, bv in zip(r.tolist(), g.tolist(), b.tolist())
+        ) + "}"
 
-        lines: list[str] = []
-        for row in rgb:
-            row_colors: str = "{" + " ".join(f"#{int(pixel[0]):02x}{int(pixel[1]):02x}{int(pixel[2]):02x}" for pixel in row) + "}"
-            lines.append(row_colors)
+        # Double-write into both halves of the circular buffer.
+        self.waterfall_photo.put(row_str, to=(0, self._wf_pos))
+        self.waterfall_photo.put(row_str, to=(0, self._wf_pos + height))
 
-        if self.waterfall_photo is None or self.waterfall_photo.width() != width or self.waterfall_photo.height() != height:
-            self.waterfall_photo = tk.PhotoImage(width=width, height=height)
-            canvas.delete("waterfall_image")
-            canvas.create_image(0, 0, anchor="nw", image=self.waterfall_photo, tags="waterfall_image")  # type: ignore[attr-defined]
+        # Position the canvas image so the newest row is at the visual top.
+        canvas.coords("waterfall_image", 0, -self._wf_pos)
 
-        self.waterfall_photo.put(" ".join(lines), to=(0, 0))
+        # Advance the write pointer: decrement wraps within [0, height).
+        self._wf_pos = (self._wf_pos - 1) % height
 
 
 def main() -> int:
