@@ -2,6 +2,21 @@
 
 WaveRider SDR now runs fully in Python with a GUI-focused web dashboard and desktop launcher.
 
+## Quick Start (Windows)
+
+1. Download and extract this repository.
+2. Install dependencies:
+
+```bat
+python -m pip install -r requirements.txt
+```
+
+3. Launch the native desktop GUI:
+
+```bat
+launch_gui.bat
+```
+
 ## What Is Implemented
 
 - Universal Python launcher with mode selection
@@ -18,35 +33,90 @@ WaveRider SDR now runs fully in Python with a GUI-focused web dashboard and desk
 - `run.py`: universal launcher (`auto`, `web`, `desktop`)
 - `waverider_web.py`: Flask app and SDR API routes
 - `waverider_sdr.py`: desktop-mode launcher
+- `waverider_tk_gui.py`: native Tkinter desktop window frontend
 - `waverider_common.py`: shared runtime state, DSP, bands, Morse decoder
+- `launch.bat`: Windows launcher (passes arguments to `run.py`)
+- `launch_gui.bat`: Windows native GUI launcher (Tkinter)
 - `templates/index.html`: web dashboard
 
-## Quick Start
+## Download
 
-### 1. Install Python dependencies
+### Option 1: Download ZIP (easiest)
+
+1. Open the repository page: https://github.com/Deployed-Labs/WaveRiderSDR
+2. Select **Code**.
+3. Select **Download ZIP**.
+4. Extract the ZIP to a folder, for example `F:\WaveRiderSDR`.
+
+### Option 2: Clone with Git
+
+```bash
+git clone https://github.com/Deployed-Labs/WaveRiderSDR.git
+cd WaveRiderSDR
+```
+
+## Install
+
+Install Python 3.10+ first, then install dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-### 2. Run Desktop GUI Mode
+## Operating
 
-```bash
-python run.py --mode desktop
+### Native desktop window (recommended on Windows)
+
+Starts the program in its own Tkinter window.
+
+```bat
+launch_gui.bat
 ```
 
-### 3. Run Web Mode
+### Desktop browser mode
+
+Starts the local server and opens your browser automatically.
+
+```bat
+launch.bat
+```
+
+### Web mode (manual open)
+
+Starts the server without auto-opening the browser.
 
 ```bash
 python run.py --mode web --host 0.0.0.0 --port 5000
 ```
 
-Open `http://localhost:5000` in your browser.
+Then open `http://localhost:5000` in your browser.
 
-### Alternate launchers
+### CLI launch alternatives
 
-- Desktop launcher: `python waverider_sdr.py`
-- Web launcher: `python waverider_web.py --open-browser`
+```bash
+python run.py --mode desktop
+python waverider_sdr.py
+python waverider_web.py --open-browser
+```
+
+### Basic operation flow
+
+1. Start the app with one of the launch options above.
+2. Choose a band preset or set frequency manually.
+3. Select sample rate, FFT size, and modulation mode.
+4. Press **Start** to begin signal updates.
+5. Watch spectrum/waterfall and status telemetry.
+6. Use **Stop** to pause processing.
+7. Close the window or stop the terminal process to exit.
+
+### Optional SDR hardware support
+
+For live hardware capture, install optional Python packages:
+
+```bash
+pip install pyrtlsdr
+# HackRF path requires SoapySDR Python bindings installed for your platform
+```
 
 ## Packaging
 
