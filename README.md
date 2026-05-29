@@ -45,10 +45,45 @@ cargo run --release -- --mode web --host 0.0.0.0 --port 5000
 
 Open http://localhost:5000 in your browser.
 
+### 4. Run Executable (GUI or Web)
+
+After building, run the executable directly:
+
+```bash
+target/release/waverider_sdr --mode desktop
+```
+
+On Windows:
+
+```powershell
+.\target\release\waverider_sdr.exe --mode desktop
+```
+
+For web-only mode with explicit host/port:
+
+```powershell
+.\target\release\waverider_sdr.exe --mode web --host 0.0.0.0 --port 5000
+```
+
+## Portable ZIP Releases (Windows)
+
+GitHub Actions now builds a portable Windows ZIP on every push to `main` and every `v*` tag.
+
+- Main branch artifacts: downloadable from the workflow run artifacts
+- Tag builds: attached to the GitHub Release
+
+Each portable ZIP includes:
+
+- `waverider_sdr.exe`
+- `templates/`
+- `run-gui.bat` (starts GUI mode)
+- `run-web.bat` (starts web mode, optional port argument)
+- `README.md` and `LICENSE`
+
 ## Modes
 
-- `--mode web`: starts the web UI server
-- `--mode desktop`: reserved placeholder for native desktop UI
+- `--mode web`: starts the web UI server only
+- `--mode desktop`: starts the local server and opens the GUI automatically in your default browser
 - `--mode auto`: chooses desktop on GUI-capable hosts, otherwise web
 
 ## Compatibility Notes
