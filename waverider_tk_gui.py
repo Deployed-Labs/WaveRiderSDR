@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import pathlib
+import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import cast
@@ -29,6 +31,10 @@ class WaveRiderTkGui:
         self._configure_style()
 
         self.state = AppState()
+        # Run the signal-processing loop (FFT + hardware I/O) on a dedicated
+        # daemon thread so the Tk event loop is never blocked by compute.
+        _signal_thread = threading.Thread(target=self._signal_loop, daemon=True)
+        _signal_thread.start()
         self.waterfall_photo: tk.PhotoImage | None = None
         self.spectrum_points: list[float] = []
         self.advanced_visible = False
@@ -199,13 +205,23 @@ class WaveRiderTkGui:
         sdr_card = ttk.Frame(drawer, padding=12, style="Panel.TFrame")
         sdr_card.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         sdr_card.columnconfigure(0, weight=1)
-        ttk.Label(sdr_card, text="SDR", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        sdr_card.columnconfigure(1, weight=0)
+        ttk.Label(sdr_card, text="SDR", style="PanelTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         self.sdr_device_var = tk.StringVar(value="Disconnected")
         self.sdr_count_var = tk.StringVar(value="Available devices: 0")
         self.sdr_error_var = tk.StringVar(value="Last error: none")
-        ttk.Label(sdr_card, textvariable=self.sdr_device_var, style="Body.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
-        ttk.Label(sdr_card, textvariable=self.sdr_count_var, style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
-        ttk.Label(sdr_card, textvariable=self.sdr_error_var, style="Muted.TLabel", wraplength=360, justify="left").grid(row=3, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(sdr_card, textvariable=self.sdr_device_var, style="Body.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.sdr_connect_var = tk.StringVar()
+        self.sdr_combo = ttk.Combobox(
+            sdr_card, textvariable=self.sdr_connect_var, state="readonly", width=22,
+        )
+        self.sdr_combo.grid(row=2, column=0, sticky="ew", padx=(0, 6), pady=(6, 0))
+        sdr_btn_row = ttk.Frame(sdr_card, style="Panel.TFrame")
+        sdr_btn_row.grid(row=2, column=1, sticky="e", pady=(6, 0))
+        ttk.Button(sdr_btn_row, text="Connect", command=self._connect_sdr).grid(row=0, column=0, padx=(0, 4))
+        ttk.Button(sdr_btn_row, text="Disconnect", command=self._disconnect_sdr).grid(row=0, column=1)
+        ttk.Label(sdr_card, textvariable=self.sdr_count_var, style="Muted.TLabel").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(sdr_card, textvariable=self.sdr_error_var, style="Muted.TLabel", wraplength=360, justify="left").grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         mesh_card = ttk.Frame(drawer, padding=12, style="Panel.TFrame")
         mesh_card.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -317,6 +333,9 @@ class WaveRiderTkGui:
         self.max_db_var = tk.StringVar(value="0")
         ttk.Entry(self.advanced_frame, textvariable=self.max_db_var).grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
 
+        ttk.Label(self.advanced_frame, text="Auto Range", style="Body.TLabel").grid(row=2, column=1, sticky="w")
+        ttk.Button(self.advanced_frame, text="Auto", command=self._auto_range_db).grid(row=3, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
+
         meter_frame = ttk.Frame(controls_card, style="Card.TFrame")
         meter_frame.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         meter_frame.columnconfigure(0, weight=1)
@@ -378,7 +397,15 @@ class WaveRiderTkGui:
         self.spectrum_canvas.bind("<B1-Motion>", self._on_spectrum_drag)
         self.spectrum_canvas.bind("<ButtonRelease-1>", self._on_spectrum_release)
 
-        ttk.Label(visuals_card, text="Waterfall", style="PanelTitle.TLabel").grid(row=2, column=0, sticky="w", pady=(12, 8))
+        wf_header = ttk.Frame(visuals_card, style="Panel.TFrame")
+        wf_header.grid(row=2, column=0, sticky="ew", pady=(12, 8))
+        wf_header.columnconfigure(0, weight=1)
+        ttk.Label(wf_header, text="Waterfall", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        self.peak_hold_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            wf_header, text="Peak Hold", variable=self.peak_hold_var,
+            command=self._toggle_peak_hold,
+        ).grid(row=0, column=1, sticky="e", padx=(12, 0))
         self.waterfall_canvas = tk.Canvas(
             visuals_card,
             height=360,
@@ -544,6 +571,22 @@ class WaveRiderTkGui:
         self.notice_var.set(f"Recalled preset {slot + 1}.")
         return "break"
 
+    def _auto_range_db(self) -> None:
+        with self.state.lock:
+            waveform = self.state.waveform_data.copy()
+        if waveform.size < 2:
+            return
+        lo = float(np.percentile(waveform, 5))
+        hi = float(np.percentile(waveform, 99))
+        margin = max(5.0, (hi - lo) * 0.1)
+        self.min_db_var.set(f"{lo - margin:.0f}")
+        self.max_db_var.set(f"{hi + margin:.0f}")
+        self._apply_config()
+
+    def _toggle_peak_hold(self) -> None:
+        with self.state.lock:
+            self.state.waterfall_settings.peak_hold = self.peak_hold_var.get()
+
     def _toggle_device_drawer(self) -> None:
         self.device_drawer_visible = not self.device_drawer_visible
         if self.device_drawer_visible:
@@ -552,6 +595,24 @@ class WaveRiderTkGui:
         else:
             self.device_drawer_frame.grid_remove()
             self.device_drawer_button.configure(text="Device Status ▸")
+
+    def _connect_sdr(self) -> None:
+        device_id = self.sdr_connect_var.get()
+        if not device_id:
+            self.notice_var.set("Select a device from the list first.")
+            return
+        with self.state.lock:
+            ok = self.state.sdr.connect(device_id)
+            error = self.state.sdr.last_error
+        if ok:
+            self.notice_var.set(f"Connected to {device_id}.")
+        else:
+            self.notice_var.set(f"Connection failed: {error or 'unknown error'}")
+
+    def _disconnect_sdr(self) -> None:
+        with self.state.lock:
+            self.state.sdr.disconnect()
+        self.notice_var.set("SDR device disconnected.")
 
     def _update_device_drawer(self, status: dict[str, object]) -> None:
         sdr_devices = cast(list[dict[str, object]], status.get("sdr_devices") or [])
@@ -571,6 +632,13 @@ class WaveRiderTkGui:
 
         self.sdr_count_var.set(f"Available devices: {len(sdr_devices)}")
         self.sdr_error_var.set(f"Last error: {status.get('sdr_last_error') or 'none'}")
+
+        # Keep the device-select combobox in sync with detected hardware.
+        device_ids = [str(d.get("id", "")) for d in sdr_devices if d.get("id")]
+        if list(self.sdr_combo["values"]) != device_ids:
+            self.sdr_combo["values"] = device_ids
+            if device_ids and not self.sdr_connect_var.get():
+                self.sdr_connect_var.set(device_ids[0])
 
         meshtastic_devices = cast(list[dict[str, object]], status.get("meshtastic_devices") or [])
         mesh_ports = [str(device.get("port")) for device in meshtastic_devices[:3] if device.get("port")]
@@ -700,16 +768,25 @@ class WaveRiderTkGui:
         self._update_frame()
         self.root.after(50, self._schedule_update)
 
+    def _signal_loop(self) -> None:
+        """Runs on a background daemon thread; owns all AppState.tick() calls."""
+        while True:
+            with self.state.lock:
+                if self.state.running:
+                    self.state.tick()
+            time.sleep(0.04)  # ~25 Hz signal update rate
+
     def _update_frame(self) -> None:
         with self.state.lock:
-            if self.state.running:
-                self.state.tick()
             waveform = self.state.waveform_data.copy()
             status = self.state.get_status()
             min_db = self.state.waterfall_settings.min_db
             max_db = self.state.waterfall_settings.max_db
+            center_freq = self.state.center_freq
+            sample_rate = self.state.sample_rate
+            squelch_db = self.state.demodulator.squelch_db
 
-        self._draw_spectrum(waveform, min_db, max_db)
+        self._draw_spectrum(waveform, min_db, max_db, center_freq, sample_rate, squelch_db)
         if status.get("running"):
             self._draw_waterfall(waveform, min_db, max_db)
 
@@ -730,13 +807,21 @@ class WaveRiderTkGui:
         morse_text = status.get("morse_text") or ""
         self.morse_var.set(str(morse_text if morse_text else "(none)"))
 
-    def _draw_spectrum(self, data: np.ndarray, min_db: float, max_db: float) -> None:
+    def _draw_spectrum(
+        self,
+        data: np.ndarray,
+        min_db: float,
+        max_db: float,
+        center_freq_hz: float = 0.0,
+        sample_rate_hz: float = 0.0,
+        squelch_db: float = -120.0,
+    ) -> None:
         canvas = self.spectrum_canvas
         canvas.delete("all")
 
         width = max(1, canvas.winfo_width())
         height = max(1, canvas.winfo_height())
-        if data.size < 2:
+        if data.size < 2 or width < 4 or height < 4:
             return
 
         for i in range(1, 5):
@@ -748,16 +833,42 @@ class WaveRiderTkGui:
         if max_db <= min_db:
             max_db = min_db + 1.0
 
-        points: list[float] = []
-        size = data.size
-        for i, value in enumerate(data):
-            x = (i / (size - 1)) * width
-            norm = (float(value) - min_db) / (max_db - min_db)
-            norm = 0.0 if norm < 0.0 else 1.0 if norm > 1.0 else norm
-            y = height - (norm * height)
-            points.extend((x, y))
+        # Vectorised: downsample to canvas width so no sub-pixel points are drawn.
+        n_pts = min(data.size, width)
+        indices = np.linspace(0, data.size - 1, n_pts).astype(np.intp)
+        sampled = data[indices]
+        norm = np.clip(
+            (sampled.astype(np.float64) - min_db) / (max_db - min_db), 0.0, 1.0
+        )
+        xs = np.linspace(0.0, float(width), n_pts, dtype=np.float64)
+        ys = float(height) - norm * float(height)
+        pts = np.empty(n_pts * 2, dtype=np.float64)
+        pts[0::2] = xs
+        pts[1::2] = ys
+        canvas.create_line(*pts.tolist(), fill="#2ec4b6", width=2, smooth=False)
 
-        canvas.create_line(*points, fill="#2ec4b6", width=2, smooth=False)
+        # Squelch threshold line.
+        sq_norm = (squelch_db - min_db) / (max_db - min_db)
+        sq_y = int(max(0.0, min(1.0, 1.0 - sq_norm)) * height)
+        canvas.create_line(0, sq_y, width, sq_y, fill=self.colors["danger"], dash=(3, 6), width=1)
+        canvas.create_text(
+            width - 6, sq_y - 4, text="SQ", anchor="se",
+            fill=self.colors["danger"], font=("Segoe UI", 8, "bold")
+        )
+
+        # Frequency axis labels along the bottom.
+        if sample_rate_hz > 0:
+            lo_mhz = (center_freq_hz - sample_rate_hz / 2.0) / 1e6
+            hi_mhz = (center_freq_hz + sample_rate_hz / 2.0) / 1e6
+            ctr_mhz = center_freq_hz / 1e6
+            y_lbl = height - 4
+            canvas.create_text(4, y_lbl, text=f"{lo_mhz:.3f} MHz", anchor="sw",
+                               fill=self.colors["muted"], font=("Segoe UI", 8))
+            canvas.create_text(width // 2, y_lbl, text=f"{ctr_mhz:.3f} MHz", anchor="s",
+                               fill=self.colors["muted"], font=("Segoe UI", 8))
+            canvas.create_text(width - 4, y_lbl, text=f"{hi_mhz:.3f} MHz", anchor="se",
+                               fill=self.colors["muted"], font=("Segoe UI", 8))
+
         self._draw_frequency_marker(canvas, width, height)
 
     def _draw_frequency_marker(self, canvas: tk.Canvas, width: int, height: int) -> None:
