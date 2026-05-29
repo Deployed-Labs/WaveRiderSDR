@@ -6,7 +6,10 @@ from dataclasses import asdict, dataclass
 import importlib
 import importlib.util
 import math
+import platform
+import subprocess
 import shutil
+import sys
 import threading
 from typing import Optional
 
@@ -26,6 +29,149 @@ class BandInfo:
 	center_hz: float
 	mode: str
 	description: str
+
+
+@dataclass
+class StartupCheckResult:
+	ok: bool
+	installed_packages: list[str]
+	missing_required: list[str]
+	warnings: list[str]
+
+	def summary(self) -> str:
+		parts: list[str] = []
+		if self.ok:
+			parts.append("Startup check passed")
+		else:
+			parts.append("Startup check found missing requirements")
+		if self.installed_packages:
+			parts.append(f"installed: {', '.join(self.installed_packages)}")
+		if self.missing_required:
+			parts.append(f"missing: {', '.join(self.missing_required)}")
+		if self.warnings:
+			parts.append(f"warnings: {len(self.warnings)}")
+		return " | ".join(parts)
+
+	def short_notice(self) -> str:
+		if self.missing_required:
+			return (
+				"Startup check failed to install required packages: "
+				+ ", ".join(self.missing_required)
+			)
+		if self.installed_packages:
+			return "Startup check installed missing packages successfully."
+		if self.warnings:
+			return self.warnings[0]
+		return ""
+
+
+_startup_check_cache: StartupCheckResult | None = None
+
+
+def _try_pip_install(packages: list[str], warnings: list[str]) -> list[str]:
+	if not packages:
+		return []
+	try:
+		result = subprocess.run(
+			[sys.executable, "-m", "pip", "install", *packages],
+			capture_output=True,
+			text=True,
+			check=False,
+			timeout=300,
+		)
+	except Exception as exc:
+		warnings.append(f"Package install attempt failed: {exc}")
+		return []
+
+	if result.returncode == 0:
+		return list(packages)
+
+	last_lines = "\n".join((result.stderr or result.stdout or "").strip().splitlines()[-3:])
+	warnings.append(
+		"Automatic package installation failed for "
+		+ ", ".join(packages)
+		+ (f" ({last_lines})" if last_lines else "")
+	)
+	return []
+
+
+def run_startup_preflight(auto_install: bool = True, force_refresh: bool = False) -> StartupCheckResult:
+	global _startup_check_cache
+	if _startup_check_cache is not None and not force_refresh:
+		return _startup_check_cache
+
+	required_import_to_package = {
+		"numpy": "numpy>=1.26.0",
+		"flask": "flask>=3.0.0",
+		"serial": "pyserial>=3.5",
+	}
+	optional_import_to_package = {
+		"rtlsdr": "pyrtlsdr",
+		"SoapySDR": "SoapySDR",
+	}
+
+	warnings: list[str] = []
+	installed_packages: list[str] = []
+
+	missing_required = [
+		package
+		for module_name, package in required_import_to_package.items()
+		if importlib.util.find_spec(module_name) is None
+	]
+
+	if missing_required and auto_install:
+		installed_now = _try_pip_install(missing_required, warnings)
+		installed_packages.extend(installed_now)
+		missing_required = [
+			package
+			for module_name, package in required_import_to_package.items()
+			if importlib.util.find_spec(module_name) is None
+		]
+
+	missing_optional = [
+		package
+		for module_name, package in optional_import_to_package.items()
+		if importlib.util.find_spec(module_name) is None
+	]
+
+	if missing_optional and auto_install:
+		installed_now = _try_pip_install(missing_optional, warnings)
+		installed_packages.extend(installed_now)
+		missing_optional = [
+			package
+			for module_name, package in optional_import_to_package.items()
+			if importlib.util.find_spec(module_name) is None
+		]
+
+	rtl_tool = bool(shutil.which("rtl_test"))
+	hackrf_tool = bool(shutil.which("SoapySDRUtil"))
+
+	if missing_optional:
+		warnings.append(
+			"Optional SDR backends are unavailable: "
+			+ ", ".join(missing_optional)
+			+ ". The app will run in simulated mode until hardware modules are installed."
+		)
+
+	if not rtl_tool:
+		warnings.append("RTL-SDR tool rtl_test not found in PATH.")
+	if not hackrf_tool:
+		warnings.append("HackRF/SoapySDR tool SoapySDRUtil not found in PATH.")
+
+	if platform.system().lower() == "windows" and (not rtl_tool or not hackrf_tool):
+		warnings.append(
+			"USB driver installation is not fully automatable from Python alone. "
+			"If hardware is not detected, install WinUSB for RTL-SDR/HackRF with Zadig."
+		)
+
+	ok = not missing_required
+	_startup_check_cache = StartupCheckResult(
+		ok=ok,
+		installed_packages=installed_packages,
+		missing_required=missing_required,
+		warnings=warnings,
+	)
+	return _startup_check_cache
 
 
 BANDS = [

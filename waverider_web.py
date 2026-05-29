@@ -6,10 +6,18 @@ import argparse
 import threading
 import time
 import webbrowser
+from typing import Any, cast
 
 from flask import Flask, jsonify, render_template, request
 
-from waverider_common import AppState, bands_as_dicts
+from waverider_common import AppState, bands_as_dicts, run_startup_preflight
+
+
+def _json_payload() -> dict[str, Any]:
+    payload = request.get_json(silent=True)
+    if isinstance(payload, dict):
+        return cast(dict[str, Any], payload)
+    return {}
 
 
 def create_app(state: AppState) -> Flask:
@@ -43,7 +51,7 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/config")
     def api_config():
-        payload = request.get_json(silent=True) or {}
+        payload = _json_payload()
         with state.lock:
             state.configure(
                 frequency_mhz=payload.get("frequency_mhz"),
@@ -63,7 +71,7 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/set_band")
     def api_set_band():
-        payload = request.get_json(silent=True) or {}
+        payload = _json_payload()
         band_name = str(payload.get("band", ""))
         with state.lock:
             ok = state.set_band(band_name)
@@ -82,7 +90,7 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/connect_sdr")
     def api_connect_sdr():
-        payload = request.get_json(silent=True) or {}
+        payload = _json_payload()
         device_id = str(payload.get("device_id", ""))
         with state.lock:
             ok = state.sdr.connect(device_id)
@@ -117,7 +125,14 @@ def _run_tick_loop(state: AppState, stop_event: threading.Event) -> None:
 
 
 def run_web(host: str = "0.0.0.0", port: int = 5000, open_browser: bool = False) -> int:
+    preflight = run_startup_preflight(auto_install=True)
+    print(preflight.summary())
+    for warning in preflight.warnings:
+        print(f"[startup] {warning}")
+
     state = AppState()
+    if preflight.short_notice():
+        state.source_notice = preflight.short_notice()
     app = create_app(state)
 
     stop_event = threading.Event()

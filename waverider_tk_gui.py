@@ -7,21 +7,23 @@ import pathlib
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import cast
+import webbrowser
 
 import numpy as np
 
 _PRESETS_FILE = pathlib.Path(__file__).with_name("waverider_presets.json")
+_SDR_SETUP_FILE = pathlib.Path(__file__).with_name("SDR_SETUP.md")
 
 # Pre-built hex lookup table — avoids per-pixel f-string calls in the waterfall hot path.
 _WF_HEX: list[str] = [f"{i:02x}" for i in range(256)]
 
-from waverider_common import AppState, BANDS
+from waverider_common import AppState, BANDS, run_startup_preflight
 
 
 class WaveRiderTkGui:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, startup_notice: str = "", startup_missing_required: bool = False) -> None:
         self.root = root
         self.root.title("WaveRider SDR")
         self.root.geometry("1280x840")
@@ -31,6 +33,8 @@ class WaveRiderTkGui:
         self._configure_style()
 
         self.state = AppState()
+        if startup_notice:
+            self.state.source_notice = startup_notice
         # Run the signal-processing loop (FFT + hardware I/O) on a dedicated
         # daemon thread so the Tk event loop is never blocked by compute.
         _signal_thread = threading.Thread(target=self._signal_loop, daemon=True)
@@ -42,12 +46,15 @@ class WaveRiderTkGui:
         self.selected_preset_slot = 0
         self.preset_slots: list[dict[str, float | str] | None] = [None, None, None]
         self.spectrum_marker_ratio = 0.5
+        self.startup_notice = startup_notice
+        self.startup_missing_required = startup_missing_required
         self._startup_alpha = 0.0
         self._wf_pos: int = -1  # circular-buffer write pointer; -1 = needs init
         self._load_presets()
         self._build_ui()
         self._refresh_preset_buttons()
         self._animate_startup()
+        self._show_startup_requirements_dialog_if_needed()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._schedule_update()
 
@@ -191,7 +198,7 @@ class WaveRiderTkGui:
         self.device_drawer_button = ttk.Button(statusbar, text="Device Status ▸", command=self._toggle_device_drawer)
         self.device_drawer_button.grid(row=0, column=1, sticky="e", padx=(12, 0))
 
-        self.notice_var = tk.StringVar(value="")
+        self.notice_var = tk.StringVar(value=self.startup_notice)
         ttk.Label(status_area, textvariable=self.notice_var, style="Subtle.TLabel", foreground=self.colors["warning"]).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         drawer = ttk.Frame(status_area, padding=(0, 10, 0, 0), style="App.TFrame")
@@ -221,6 +228,7 @@ class WaveRiderTkGui:
         ttk.Button(sdr_btn_row, text="Disconnect", command=self._disconnect_sdr).grid(row=0, column=1)
         ttk.Label(sdr_card, textvariable=self.sdr_count_var, style="Muted.TLabel").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(sdr_card, textvariable=self.sdr_error_var, style="Muted.TLabel", wraplength=360, justify="left").grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Button(sdr_card, text="Driver Help", command=self._open_driver_help).grid(row=5, column=0, sticky="w", pady=(8, 0))
 
         mesh_card = ttk.Frame(drawer, padding=12, style="Panel.TFrame")
         mesh_card.grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -648,6 +656,84 @@ class WaveRiderTkGui:
             self.state.sdr.disconnect()
         self.notice_var.set("SDR device disconnected.")
 
+    def _open_driver_help(self) -> None:
+        try:
+            if _SDR_SETUP_FILE.exists():
+                webbrowser.open(_SDR_SETUP_FILE.resolve().as_uri())
+                self.notice_var.set("Opened SDR setup guide.")
+                return
+        except Exception:
+            pass
+
+        messagebox.showinfo(
+            "Driver Setup Help",
+            "Could not open SDR_SETUP.md automatically."
+            "\nOpen SDR_SETUP.md in this project for Windows Zadig and backend setup steps.",
+        )
+
+    def _show_startup_requirements_dialog_if_needed(self) -> None:
+        if not self.startup_missing_required:
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Startup Check Failed")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        frame = ttk.Frame(dialog, padding=14, style="Card.TFrame")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text="Missing required Python dependencies", style="PanelTitle.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
+            frame,
+            text=(
+                "WaveRider could not install one or more required packages during startup.\n"
+                "Select Retry Install to try again now."
+            ),
+            style="Body.TLabel",
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        self.retry_status_var = tk.StringVar(value=self.startup_notice)
+        ttk.Label(
+            frame,
+            textvariable=self.retry_status_var,
+            style="Muted.TLabel",
+            wraplength=520,
+            justify="left",
+        ).grid(row=2, column=0, sticky="w", pady=(8, 0))
+
+        button_row = ttk.Frame(frame, style="Card.TFrame")
+        button_row.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        ttk.Button(button_row, text="Retry Install", command=lambda: self._retry_startup_install(dialog)).grid(
+            row=0, column=0, padx=(0, 8)
+        )
+        ttk.Button(button_row, text="Continue", command=dialog.destroy).grid(row=0, column=1)
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + max(20, (self.root.winfo_width() - dialog.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + 120
+        dialog.geometry(f"+{x}+{max(20, y)}")
+
+    def _retry_startup_install(self, dialog: tk.Toplevel) -> None:
+        result = run_startup_preflight(auto_install=True, force_refresh=True)
+        self.startup_notice = result.short_notice()
+        self.notice_var.set(self.startup_notice)
+
+        if result.missing_required:
+            self.retry_status_var.set(
+                "Retry failed. Missing: " + ", ".join(result.missing_required)
+            )
+            return
+
+        self.retry_status_var.set("Retry succeeded. Required dependencies are installed.")
+        self.startup_missing_required = False
+        self.root.after(250, dialog.destroy)
+
     def _update_device_drawer(self, status: dict[str, object]) -> None:
         sdr_devices = cast(list[dict[str, object]], status.get("sdr_devices") or [])
         connected_id = status.get("connected_sdr_id")
@@ -986,8 +1072,17 @@ class WaveRiderTkGui:
 
 
 def main() -> int:
+    preflight = run_startup_preflight(auto_install=True)
+    print(preflight.summary())
+    for warning in preflight.warnings:
+        print(f"[startup] {warning}")
+
     root = tk.Tk()
-    WaveRiderTkGui(root)
+    WaveRiderTkGui(
+        root,
+        startup_notice=preflight.short_notice(),
+        startup_missing_required=bool(preflight.missing_required),
+    )
     root.mainloop()
     return 0
 
