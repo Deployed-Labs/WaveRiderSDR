@@ -224,29 +224,87 @@ class SdrDevice:
 
 	def detect_devices(self) -> list[dict[str, str]]:
 		devices: list[dict[str, str]] = []
-		rtl_available = (importlib.util.find_spec("rtlsdr") is not None) or bool(shutil.which("rtl_test"))
-		hackrf_available = (importlib.util.find_spec("SoapySDR") is not None) or bool(shutil.which("SoapySDRUtil"))
 
-		if rtl_available:
-			devices.append(
-				{
-					"id": "rtl_sdr_0",
-					"device_type": "RTL-SDR",
-					"backend": "rtlsdr",
-					"name": "RTL-SDR",
-					"description": "RTL-SDR backend available",
-				}
-			)
-		if hackrf_available:
-			devices.append(
-				{
+		# Try to enumerate actual RTL-SDR devices
+		try:
+			rtlsdr = importlib.import_module("rtlsdr")
+			get_devices = getattr(rtlsdr, "open", None)
+			if get_devices:
+				try:
+					# Use rtlsdr.get_device_info_by_index() if available
+					get_device_info = getattr(rtlsdr, "get_device_info_by_index", None)
+					if get_device_info:
+						index = 0
+						while True:
+							try:
+								info = get_device_info(index)
+								devices.append({
+									"id": f"rtl_sdr_{index}",
+									"device_type": "RTL-SDR",
+									"backend": "rtlsdr",
+									"name": f"RTL-SDR #{index}",
+									"description": str(info) if info else "RTL-SDR USB device",
+								})
+								index += 1
+							except (IndexError, OSError, ValueError):
+								break
+							
+						# If no devices found via enumeration, offer generic entry
+						if not devices:
+							devices.append({
+								"id": "rtl_sdr_0",
+								"device_type": "RTL-SDR",
+								"backend": "rtlsdr",
+								"name": "RTL-SDR",
+								"description": "RTL-SDR (connected USB device)",
+							})
+				except Exception:
+					# If enumeration fails, offer generic entry
+					devices.append({
+						"id": "rtl_sdr_0",
+						"device_type": "RTL-SDR",
+						"backend": "rtlsdr",
+						"name": "RTL-SDR",
+						"description": "RTL-SDR (connected USB device)",
+					})
+		except (ImportError, ModuleNotFoundError):
+			pass
+
+		# Try to enumerate actual HackRF devices via SoapySDR
+		try:
+			soapysdr = importlib.import_module("SoapySDR")
+			try:
+				devices_found = soapysdr.Device.enumerate({"driver": "hackrf"})
+				for idx, dev in enumerate(devices_found):
+					devices.append({
+						"id": f"hackrf_{idx}",
+						"device_type": "HackRF",
+						"backend": "hackrf",
+						"name": f"HackRF #{idx}",
+						"description": str(dev) if dev else "HackRF USB device",
+					})
+				
+				# If no devices found via enumeration, offer generic entry
+				if not any(d.get("backend") == "hackrf" for d in devices):
+					devices.append({
+						"id": "hackrf_0",
+						"device_type": "HackRF",
+						"backend": "hackrf",
+						"name": "HackRF",
+						"description": "HackRF (connected USB device)",
+					})
+			except Exception:
+				# If enumeration fails, offer generic entry
+				devices.append({
 					"id": "hackrf_0",
 					"device_type": "HackRF",
 					"backend": "hackrf",
 					"name": "HackRF",
-					"description": "HackRF backend available",
-				}
-			)
+					"description": "HackRF (connected USB device)",
+				})
+		except (ImportError, ModuleNotFoundError):
+			pass
+
 		return devices
 
 	def diagnostics(self) -> dict[str, object]:
@@ -326,42 +384,85 @@ class SdrDevice:
 		if backend == "rtlsdr":
 			if self._rtl_device is None:
 				raise RuntimeError("RTL-SDR backend not initialized")
-			self._rtl_device.sample_rate = float(sample_rate)
-			self._rtl_device.center_freq = float(center_freq)
-			raw = self._rtl_device.read_samples(int(num_samples))
-			return np.asarray(raw, dtype=np.complex64)
+			try:
+				self._rtl_device.sample_rate = float(sample_rate)
+				self._rtl_device.center_freq = float(center_freq)
+				raw = self._rtl_device.read_samples(int(num_samples))
+				return np.asarray(raw, dtype=np.complex64)
+			except Exception as e:
+				raise RuntimeError(f"RTL-SDR read failed: {e}") from e
 
 		if backend == "hackrf":
 			if self._hackrf_device is None or self._hackrf_stream is None:
 				raise RuntimeError("HackRF backend not initialized")
-			return self._read_hackrf_samples(int(num_samples), float(sample_rate), float(center_freq))
+			try:
+				return self._read_hackrf_samples(int(num_samples), float(sample_rate), float(center_freq))
+			except Exception as e:
+				raise RuntimeError(f"HackRF read failed: {e}") from e
 
 		raise RuntimeError("Unknown SDR backend")
 
 	def _connect_rtlsdr(self) -> None:
-		module = importlib.import_module("rtlsdr")
-		RtlSdr = getattr(module, "RtlSdr")
-		self._rtl_device = RtlSdr()
+		try:
+			rtlsdr = importlib.import_module("rtlsdr")
+			RtlSdr = getattr(rtlsdr, "RtlSdr")
+			self._rtl_device = RtlSdr()
+			# Set default parameters
+			if hasattr(self._rtl_device, "gain"):
+				self._rtl_device.gain = "auto"
+		except ImportError as e:
+			raise RuntimeError(
+				f"RTL-SDR module not installed. Install with: pip install pyrtlsdr. Error: {e}"
+			) from e
+		except AttributeError as e:
+			raise RuntimeError(
+				f"RTL-SDR module structure unexpected. Install with: pip install pyrtlsdr. Error: {e}"
+			) from e
+		except Exception as e:
+			raise RuntimeError(f"Failed to initialize RTL-SDR device: {e}") from e
 
 	def _connect_hackrf(self) -> None:
-		soapysdr = importlib.import_module("SoapySDR")
-		kwargs = {"driver": "hackrf"}
-		self._hackrf_device = soapysdr.Device(kwargs)
-		self._hackrf_stream = self._hackrf_device.setupStream(
-			soapysdr.SOAPY_SDR_RX,
-			soapysdr.SOAPY_SDR_CF32,
-		)
-		self._hackrf_device.activateStream(self._hackrf_stream)
+		try:
+			soapysdr = importlib.import_module("SoapySDR")
+			kwargs = {"driver": "hackrf"}
+			try:
+				self._hackrf_device = soapysdr.Device(kwargs)
+			except Exception as device_err:
+				raise RuntimeError(
+					f"Failed to open HackRF device. Ensure device is connected and drivers are installed. Error: {device_err}"
+				) from device_err
+			
+			try:
+				self._hackrf_stream = self._hackrf_device.setupStream(
+					soapysdr.SOAPY_SDR_RX,
+					soapysdr.SOAPY_SDR_CF32,
+				)
+				self._hackrf_device.activateStream(self._hackrf_stream)
+			except Exception as stream_err:
+				raise RuntimeError(
+					f"Failed to setup HackRF stream. Error: {stream_err}"
+				) from stream_err
+		except ImportError as e:
+			raise RuntimeError(
+				f"SoapySDR module not installed. Install with: pip install SoapySDR. Error: {e}"
+			) from e
+		except Exception as e:
+			raise RuntimeError(f"Failed to initialize HackRF device: {e}") from e
 
 	def _read_hackrf_samples(self, num_samples: int, sample_rate: float, center_freq: float) -> np.ndarray:
-		soapysdr = importlib.import_module("SoapySDR")
-		self._hackrf_device.setSampleRate(soapysdr.SOAPY_SDR_RX, 0, sample_rate)
-		self._hackrf_device.setFrequency(soapysdr.SOAPY_SDR_RX, 0, center_freq)
-		buff = np.empty(num_samples, np.complex64)
-		result = self._hackrf_device.readStream(self._hackrf_stream, [buff], num_samples)
-		if result.ret <= 0:
-			raise RuntimeError(f"HackRF readStream returned {result.ret}")
-		return buff[: result.ret].copy()
+		try:
+			soapysdr = importlib.import_module("SoapySDR")
+			self._hackrf_device.setSampleRate(soapysdr.SOAPY_SDR_RX, 0, sample_rate)  # type: ignore
+			self._hackrf_device.setFrequency(soapysdr.SOAPY_SDR_RX, 0, center_freq)  # type: ignore
+			buff = np.empty(num_samples, np.complex64)
+			result = self._hackrf_device.readStream(self._hackrf_stream, [buff], num_samples)  # type: ignore
+			if result.ret <= 0:
+				raise RuntimeError(f"HackRF readStream returned {result.ret}")
+			return buff[: result.ret].copy()
+		except Exception as e:
+			if isinstance(e, RuntimeError):
+				raise
+			raise RuntimeError(f"HackRF sample read failed: {e}") from e
 
 
 class AppState:
