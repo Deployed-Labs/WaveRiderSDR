@@ -121,6 +121,14 @@ jobs:
       - name: Install cargo-wix
         run: cargo install cargo-wix --locked
 
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          choco install wixtoolset --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install WiX Toolset"
+          }
+
       - name: Build Windows executable
         run: cargo build --release --locked
 
