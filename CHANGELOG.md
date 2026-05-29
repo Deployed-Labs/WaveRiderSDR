@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restructured documentation for better navigation
 - Windows release pipeline now publishes a single MSI artifact with a desktop shortcut
 - Windows release docs now include a direct latest MSI download URL
+- Main-branch release run now publishes MSI directly to the auto-created tag release
 
 ### Improved
 - Installation process now one-command on all platforms

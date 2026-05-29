@@ -21,6 +21,7 @@ jobs:
           fetch-depth: 0
 
       - name: Create next patch tag on main
+        id: create_tag
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
@@ -31,6 +32,7 @@ jobs:
             $existing = $headTags | Select-Object -First 1
             Write-Host "Semantic version tag already exists on this commit: $existing"
             "AUTO_TAG=$existing" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "auto_tag=$existing" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             exit 0
           }
 
@@ -52,6 +54,7 @@ jobs:
           git push origin $nextTag
           Write-Host "Created and pushed tag $nextTag"
           "AUTO_TAG=$nextTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "auto_tag=$nextTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Enforce patch increment for tag releases
         if: startsWith(github.ref, 'refs/tags/')
@@ -126,7 +129,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          if ("${{ github.ref_type }}" -eq "tag") {
+          if ("${{ github.ref_type }}" -eq "tag" -or "${{ github.ref }}" -eq "refs/heads/main") {
             $msiName = "WaveRiderSDR-windows-x64"
           } else {
             $shortSha = "${{ github.sha }}".Substring(0, 12)
@@ -142,14 +145,15 @@ jobs:
           path: release-assets/${{ steps.build_msi.outputs.msi_name }}.msi
 
       - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          name: WaveRider SDR ${{ github.ref_name }}
+          tag_name: ${{ github.ref == 'refs/heads/main' && steps.create_tag.outputs.auto_tag || github.ref_name }}
+          name: WaveRider SDR ${{ github.ref == 'refs/heads/main' && steps.create_tag.outputs.auto_tag || github.ref_name }}
           files: |
             release-assets/${{ steps.build_msi.outputs.msi_name }}.msi
           generate_release_notes: true
           make_latest: true
-          prerelease: ${{ contains(github.ref_name, 'a') }}
+          prerelease: ${{ contains(github.ref == 'refs/heads/main' && steps.create_tag.outputs.auto_tag || github.ref_name, 'a') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
