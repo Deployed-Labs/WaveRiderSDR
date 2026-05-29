@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
 
     match mode {
         Mode::Web => web::run_web(&cli.host, cli.port).await?,
-        Mode::Desktop => desktop::run_desktop()?,
+        Mode::Desktop => desktop::run_desktop(&cli.host, cli.port).await?,
         Mode::Auto => unreachable!("auto should be resolved"),
     }
 
@@ -60,15 +60,15 @@ async fn main() -> Result<()> {
 fn detect_mode() -> Mode {
     #[cfg(target_os = "linux")]
     {
-        if std::env::var("DISPLAY").is_ok() {
-            return Mode::Web;
+        if std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok() {
+            return Mode::Desktop;
         }
         return Mode::Web;
     }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        Mode::Web
+        Mode::Desktop
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
