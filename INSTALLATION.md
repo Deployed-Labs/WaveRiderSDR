@@ -2,16 +2,28 @@
 
 ## Windows
 
-### PowerShell
+### Release install (recommended)
+
+1. Download the single MSI artifact from Releases.
+2. Run the MSI.
+3. Use the created desktop shortcut: WaveRiderSDR.
+
+### Build MSI locally (PowerShell)
 
 ```powershell
 .\install.ps1
 ```
 
-### Command Prompt
+### Build MSI locally (Command Prompt)
 
 ```cmd
 install.bat
+```
+
+After building locally, install with:
+
+```powershell
+msiexec /i .\dist\waverider_sdr.msi
 ```
 
 ## Linux / macOS

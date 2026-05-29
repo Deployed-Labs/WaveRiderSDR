@@ -1,10 +1,10 @@
 @echo off
-REM WaveRider SDR Rust installer for Windows
+REM WaveRider SDR MSI build helper for Windows
 
 setlocal
 
 echo ===========================================
-echo WaveRider SDR Rust Installation (Windows)
+echo WaveRider SDR MSI Build (Windows)
 echo ===========================================
 
 REM Check cargo availability
@@ -17,6 +17,17 @@ if %errorlevel% neq 0 (
 
 echo [OK] Rust toolchain detected
 
+echo [*] Checking cargo-wix...
+cargo wix --version >nul 2>&1
+if %errorlevel% neq 0 (
+  echo [*] Installing cargo-wix...
+  cargo install cargo-wix --locked
+  if %errorlevel% neq 0 (
+    echo [ERROR] Failed to install cargo-wix
+    exit /b 1
+  )
+)
+
 echo [*] Building release binary...
 cargo build --release
 if %errorlevel% neq 0 (
@@ -24,8 +35,16 @@ if %errorlevel% neq 0 (
   exit /b 1
 )
 
-echo [OK] Build complete
-echo Run with: target\release\waverider_sdr.exe --mode web
-echo or: cargo run --release -- --mode web
+if not exist dist mkdir dist
+
+echo [*] Building MSI installer...
+cargo wix --no-build --output dist\waverider_sdr.msi
+if %errorlevel% neq 0 (
+  echo [ERROR] MSI build failed
+  exit /b 1
+)
+
+echo [OK] MSI created: dist\waverider_sdr.msi
+echo Install with: msiexec /i dist\waverider_sdr.msi
 
 exit /b 0

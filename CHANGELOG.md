@@ -17,12 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop launcher scripts for all platforms
 - Firewall configuration in installation scripts
 - Pre-built executable support structure
+- WiX MSI installer definition for Windows releases
 
 ### Changed
 - Completely rewritten README with professional formatting
 - Enhanced Quick Start section with multiple installation methods
 - Improved security documentation with detailed firewall rules
 - Restructured documentation for better navigation
+- Windows release pipeline now publishes a single MSI artifact with a desktop shortcut
 
 ### Improved
 - Installation process now one-command on all platforms

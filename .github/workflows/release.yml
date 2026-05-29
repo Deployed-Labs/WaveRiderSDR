@@ -115,48 +115,25 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-wix
+        run: cargo install cargo-wix --locked
+
       - name: Build Windows executable
         run: cargo build --release --locked
 
-      - name: Package portable ZIP
+      - name: Build MSI installer
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
           $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "main-${{ github.sha }}".Substring(0, 17) }
-          $packageName = "waverider_sdr-portable-$version-windows-x64"
-          $packageRoot = Join-Path "release-assets" $packageName
-
-          New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
-          Copy-Item "target/release/waverider_sdr.exe" $packageRoot
-          Copy-Item "templates" (Join-Path $packageRoot "templates") -Recurse -Force
-
-          if (Test-Path "README.md") { Copy-Item "README.md" $packageRoot }
-          if (Test-Path "LICENSE") { Copy-Item "LICENSE" $packageRoot }
-
-          @"
-          @echo off
-          setlocal
-          cd /d "%~dp0"
-          waverider_sdr.exe --mode desktop
-          "@ | Set-Content -Path (Join-Path $packageRoot "run-gui.bat") -Encoding ascii
-
-          @"
-          @echo off
-          setlocal
-          cd /d "%~dp0"
-          set HOST=0.0.0.0
-          set PORT=5000
-          if not "%~1"=="" set PORT=%~1
-          waverider_sdr.exe --mode web --host %HOST% --port %PORT%
-          "@ | Set-Content -Path (Join-Path $packageRoot "run-web.bat") -Encoding ascii
-
-          Compress-Archive -Path $packageRoot -DestinationPath "release-assets/$packageName.zip" -Force
-          "PACKAGE_NAME=$packageName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          cargo wix --no-build --output release-assets/waverider_sdr-$version-windows-x64.msi
+          "MSI_NAME=waverider_sdr-$version-windows-x64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}
-          path: release-assets/${{ env.PACKAGE_NAME }}.zip
+          name: ${{ env.MSI_NAME }}
+          path: release-assets/${{ env.MSI_NAME }}.msi
 
       - name: Publish GitHub release assets
         if: startsWith(github.ref, 'refs/tags/')
@@ -164,7 +141,7 @@ jobs:
         with:
           name: WaveRider SDR ${{ github.ref_name }}
           files: |
-            release-assets/${{ env.PACKAGE_NAME }}.zip
+            release-assets/${{ env.MSI_NAME }}.msi
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, 'a') }}
         env:

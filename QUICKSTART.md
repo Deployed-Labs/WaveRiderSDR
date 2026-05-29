@@ -4,6 +4,11 @@
 
 - Rust toolchain installed via rustup
 
+## Windows (Release)
+
+1. Download and run the MSI from Releases.
+2. Launch WaveRiderSDR from the desktop shortcut.
+
 ## Run
 
 ```bash
