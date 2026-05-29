@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import importlib
+import importlib.util
 import math
 import shutil
 import threading
