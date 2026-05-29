@@ -23,6 +23,7 @@ class WaveRiderTkGui:
         self.state = AppState()
         self.waterfall_photo: tk.PhotoImage | None = None
         self.spectrum_points: list[float] = []
+        self.advanced_visible = False
         self._build_ui()
         self._schedule_update()
 
@@ -70,14 +71,16 @@ class WaveRiderTkGui:
         style.configure("TEntry", fieldbackground="#0f1726", foreground=self.colors["text"], insertcolor=self.colors["text"])
         style.configure("TCombobox", fieldbackground="#0f1726", foreground=self.colors["text"])
         style.map("TCombobox", fieldbackground=[("readonly", "#0f1726")], foreground=[("readonly", self.colors["text"])])
+        style.configure("TSeparator", background=self.colors["grid"])
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
 
-        header = ttk.Frame(self.root, padding=(16, 14, 16, 4), style="App.TFrame")
+        header = ttk.Frame(self.root, padding=(16, 14, 16, 8), style="App.TFrame")
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=0)
         ttk.Label(header, text="WaveRider SDR", style="Header.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             header,
@@ -85,16 +88,52 @@ class WaveRiderTkGui:
             style="Subtle.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
+        self.mode_badge = ttk.Label(header, text="MODE: IDLE", style="PanelTitle.TLabel")
+        self.mode_badge.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+
+        toolbar = ttk.Frame(self.root, padding=(16, 0, 16, 4), style="App.TFrame")
+        toolbar.grid(row=1, column=0, sticky="ew")
+        toolbar.columnconfigure(0, weight=1)
+        toolbar.columnconfigure(1, weight=0)
+        toolbar.columnconfigure(2, weight=0)
+        toolbar.columnconfigure(3, weight=0)
+
+        preset_row = ttk.Frame(toolbar, style="App.TFrame")
+        preset_row.grid(row=0, column=0, sticky="w")
+        ttk.Label(preset_row, text="View", style="Subtle.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Button(preset_row, text="Wide Spectrum", command=lambda: self._apply_view_preset("wide")).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(preset_row, text="Waterfall Focus", command=lambda: self._apply_view_preset("waterfall")).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(preset_row, text="Balanced", command=lambda: self._apply_view_preset("balanced")).grid(row=0, column=3)
+
+        ttk.Button(toolbar, text="Apply", style="Accent.TButton", command=self._apply_config).grid(row=0, column=1, padx=(8, 8), sticky="e")
+        ttk.Button(toolbar, text="Start", style="Accent.TButton", command=self._start).grid(row=0, column=2, padx=(0, 8), sticky="e")
+        ttk.Button(toolbar, text="Stop", style="Accent.TButton", command=self._stop).grid(row=0, column=3, sticky="e")
+
         statusbar = ttk.Frame(self.root, padding=(16, 0, 16, 8), style="App.TFrame")
-        statusbar.grid(row=1, column=0, sticky="ew")
+        statusbar.grid(row=2, column=0, sticky="ew")
         statusbar.columnconfigure(0, weight=1)
-        self.status_var = tk.StringVar(value="Stopped | Source: Simulated | Signal: -120.0 dB")
-        ttk.Label(statusbar, textvariable=self.status_var, style="Subtle.TLabel").grid(row=0, column=0, sticky="w")
+        badges = ttk.Frame(statusbar, style="App.TFrame")
+        badges.grid(row=0, column=0, sticky="ew")
+        badges.columnconfigure(0, weight=1)
+        badges.columnconfigure(1, weight=0)
+        badges.columnconfigure(2, weight=0)
+        badges.columnconfigure(3, weight=0)
+
+        self.status_var = tk.StringVar(value="Stopped")
+        ttk.Label(badges, textvariable=self.status_var, style="Subtle.TLabel").grid(row=0, column=0, sticky="w")
+
+        self.source_badge = ttk.Label(badges, text="SIMULATED", style="PanelTitle.TLabel")
+        self.source_badge.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.signal_badge = ttk.Label(badges, text="-120.0 dB", style="PanelTitle.TLabel")
+        self.signal_badge.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        self.rate_badge = ttk.Label(badges, text="2.4 MS/s", style="PanelTitle.TLabel")
+        self.rate_badge.grid(row=0, column=3, sticky="e", padx=(8, 0))
+
         self.notice_var = tk.StringVar(value="")
-        ttk.Label(statusbar, textvariable=self.notice_var, style="Subtle.TLabel", foreground=self.colors["warning"]).grid(row=1, column=0, sticky="w")
+        ttk.Label(statusbar, textvariable=self.notice_var, style="Subtle.TLabel", foreground=self.colors["warning"]).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         splitter = ttk.Panedwindow(self.root, orient=tk.HORIZONTAL)
-        splitter.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
+        splitter.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 16))
 
         controls_card = ttk.Frame(splitter, padding=14, style="Card.TFrame")
         visuals_card = ttk.Frame(splitter, padding=14, style="Panel.TFrame")
@@ -102,8 +141,8 @@ class WaveRiderTkGui:
         splitter.add(visuals_card, weight=3)  # type: ignore[attr-defined]
 
         controls_card.columnconfigure(0, weight=1)
-        for col in range(2):
-            controls_card.columnconfigure(col, weight=1)
+        controls_card.columnconfigure(1, weight=1)
+        controls_card.rowconfigure(11, weight=1)
 
         ttk.Label(controls_card, text="Control Panel", style="PanelTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
@@ -149,30 +188,78 @@ class WaveRiderTkGui:
             state="readonly",
         ).grid(row=6, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
 
-        ttk.Label(controls_card, text="Squelch (dB)", style="Body.TLabel").grid(row=5, column=1, sticky="w")
+        advanced_toggle_row = ttk.Frame(controls_card, style="Card.TFrame")
+        advanced_toggle_row.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        advanced_toggle_row.columnconfigure(0, weight=1)
+        self.advanced_button = ttk.Button(advanced_toggle_row, text="Advanced ▸", command=self._toggle_advanced)
+        self.advanced_button.grid(row=0, column=0, sticky="w")
+
+        self.advanced_frame = ttk.Frame(controls_card, style="Card.TFrame")
+        self.advanced_frame.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self.advanced_frame.columnconfigure(0, weight=1)
+        self.advanced_frame.columnconfigure(1, weight=1)
+        self.advanced_frame.grid_remove()
+
+        ttk.Label(self.advanced_frame, text="Squelch (dB)", style="Body.TLabel").grid(row=0, column=0, sticky="w")
         self.squelch_var = tk.StringVar(value="-50")
-        ttk.Entry(controls_card, textvariable=self.squelch_var).grid(row=6, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(self.advanced_frame, textvariable=self.squelch_var).grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
 
-        ttk.Label(controls_card, text="Min dB", style="Body.TLabel").grid(row=7, column=0, sticky="w")
+        ttk.Label(self.advanced_frame, text="Min dB", style="Body.TLabel").grid(row=0, column=1, sticky="w")
         self.min_db_var = tk.StringVar(value="-80")
-        ttk.Entry(controls_card, textvariable=self.min_db_var).grid(row=8, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(self.advanced_frame, textvariable=self.min_db_var).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
 
-        ttk.Label(controls_card, text="Max dB", style="Body.TLabel").grid(row=7, column=1, sticky="w")
+        ttk.Label(self.advanced_frame, text="Max dB", style="Body.TLabel").grid(row=2, column=0, sticky="w")
         self.max_db_var = tk.StringVar(value="0")
-        ttk.Entry(controls_card, textvariable=self.max_db_var).grid(row=8, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(self.advanced_frame, textvariable=self.max_db_var).grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
+
+        meter_frame = ttk.Frame(controls_card, style="Card.TFrame")
+        meter_frame.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        meter_frame.columnconfigure(0, weight=1)
+        ttk.Label(meter_frame, text="Signal Meter", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        self.meter_canvas = tk.Canvas(
+            meter_frame,
+            height=24,
+            background=self.colors["canvas"],
+            highlightthickness=1,
+            highlightbackground=self.colors["grid"],
+            bd=0,
+        )
+        self.meter_canvas.grid(row=1, column=0, sticky="ew", pady=(6, 0))
 
         button_row = ttk.Frame(controls_card, style="Card.TFrame")
-        button_row.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        button_row.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         button_row.columnconfigure((0, 1, 2), weight=1)
         ttk.Button(button_row, text="Apply", style="Accent.TButton", command=self._apply_config).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ttk.Button(button_row, text="Start", style="Accent.TButton", command=self._start).grid(row=0, column=1, sticky="ew", padx=(0, 8))
         ttk.Button(button_row, text="Stop", style="Accent.TButton", command=self._stop).grid(row=0, column=2, sticky="ew")
 
+        ttk.Separator(controls_card, orient=tk.HORIZONTAL).grid(row=11, column=0, columnspan=2, sticky="ew", pady=(14, 10))
+
+        quickinfo = ttk.Frame(controls_card, style="Card.TFrame")
+        quickinfo.grid(row=10, column=0, columnspan=2, sticky="nsew", pady=(14, 0))
+        quickinfo.columnconfigure(0, weight=1)
+        ttk.Label(quickinfo, text="Operating Notes", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            quickinfo,
+            text="Use Apply after changing frequency or FFT size. Start pauses updates when you need a static view.",
+            style="Muted.TLabel",
+            wraplength=300,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+
         visuals_card.columnconfigure(0, weight=1)
         visuals_card.rowconfigure(1, weight=1)
         visuals_card.rowconfigure(3, weight=1)
 
-        ttk.Label(visuals_card, text="Spectrum", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        spectrum_header = ttk.Frame(visuals_card, style="Panel.TFrame")
+        spectrum_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        spectrum_header.columnconfigure(0, weight=1)
+        ttk.Label(spectrum_header, text="Spectrum", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            spectrum_header,
+            text="Center line marks the tuned frequency",
+            style="Subtle.TLabel",
+        ).grid(row=0, column=1, sticky="e")
         self.spectrum_canvas = tk.Canvas(
             visuals_card,
             height=220,
@@ -202,6 +289,9 @@ class WaveRiderTkGui:
         ttk.Label(footer, textvariable=self.morse_var, style="Body.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         self.waterfall_canvas.bind("<Configure>", self._on_waterfall_resize)
+        self.root.bind("<Control-Return>", lambda _event: self._apply_config())
+        self.root.bind("<F5>", lambda _event: self._start())
+        self.root.bind("<Escape>", lambda _event: self._stop())
 
     def _on_waterfall_resize(self, _event: tk.Event) -> None:
         self.waterfall_photo = None
@@ -212,6 +302,23 @@ class WaveRiderTkGui:
             if self.state.set_band(band_name):
                 self.freq_var.set(f"{self.state.center_freq / 1_000_000.0:.3f}")
                 self.mode_var.set(self.state.modulation_mode)
+
+    def _toggle_advanced(self) -> None:
+        self.advanced_visible = not self.advanced_visible
+        if self.advanced_visible:
+            self.advanced_frame.grid()
+            self.advanced_button.configure(text="Advanced ▾")
+        else:
+            self.advanced_frame.grid_remove()
+            self.advanced_button.configure(text="Advanced ▸")
+
+    def _apply_view_preset(self, preset: str) -> None:
+        if preset == "wide":
+            self.root.geometry("1440x820")
+        elif preset == "waterfall":
+            self.root.geometry("1240x920")
+        else:
+            self.root.geometry("1280x840")
 
     def _start(self) -> None:
         with self.state.lock:
@@ -263,11 +370,19 @@ class WaveRiderTkGui:
         self._draw_waterfall(waterfall, min_db, max_db)
 
         self.status_var.set(
-            f"{'Running' if status['running'] else 'Stopped'} | "
-            f"Source: {status['source']} | "
-            f"Signal: {status['signal_strength_db']:.1f} dB"
+            f"{'Running' if status['running'] else 'Stopped'}"
         )
         self.notice_var.set(str(status.get("source_notice") or ""))
+
+        self.mode_badge.configure(text=f"MODE: {str(status.get('modulation_mode') or 'NONE').upper()}")
+        self.source_badge.configure(text=str(status.get("source") or "SIMULATED").upper())
+        self.signal_badge.configure(text=f"{status['signal_strength_db']:.1f} dB")
+        sample_rate_value = status.get("sample_rate")
+        sample_rate_hz = sample_rate_value if isinstance(sample_rate_value, (int, float)) else 0.0
+        self.rate_badge.configure(text=f"{sample_rate_hz / 1_000_000.0:.1f} MS/s")
+        signal_value = status.get("signal_strength_db")
+        signal_db = signal_value if isinstance(signal_value, (int, float)) else -120.0
+        self._draw_meter(signal_db)
 
         morse_text = status.get("morse_text") or ""
         self.morse_var.set(str(morse_text if morse_text else "(none)"))
@@ -285,6 +400,8 @@ class WaveRiderTkGui:
             y = int((height * i) / 5)
             canvas.create_line(0, y, width, y, fill="#223247")
 
+        canvas.create_text(14, 12, text="Live Spectrum", anchor="nw", fill=self.colors["muted"], font=("Segoe UI", 9, "bold"))
+
         if max_db <= min_db:
             max_db = min_db + 1.0
 
@@ -298,6 +415,34 @@ class WaveRiderTkGui:
             points.extend((x, y))
 
         canvas.create_line(*points, fill="#2ec4b6", width=2, smooth=False)
+        self._draw_frequency_marker(canvas, width, height)
+
+    def _draw_frequency_marker(self, canvas: tk.Canvas, width: int, height: int) -> None:
+        center_x = width // 2
+        canvas.create_line(center_x, 0, center_x, height, fill=self.colors["warning"], dash=(4, 4), width=1)
+        canvas.create_text(center_x + 10, 12, text="Center", anchor="nw", fill=self.colors["warning"], font=("Segoe UI", 8, "bold"))
+
+    def _draw_meter(self, signal_db: float) -> None:
+        canvas = self.meter_canvas
+        canvas.delete("all")
+
+        width = max(1, canvas.winfo_width())
+        height = max(1, canvas.winfo_height())
+        canvas.create_rectangle(0, 0, width, height, fill=self.colors["canvas"], outline="")
+
+        normalized = (signal_db + 120.0) / 120.0
+        normalized = 0.0 if normalized < 0.0 else 1.0 if normalized > 1.0 else normalized
+        fill_width = int(width * normalized)
+
+        if signal_db >= -40:
+            color = self.colors["danger"]
+        elif signal_db >= -70:
+            color = self.colors["warning"]
+        else:
+            color = self.colors["accent"]
+
+        canvas.create_rectangle(0, 0, fill_width, height, fill=color, outline="")
+        canvas.create_text(10, height // 2, text=f"{signal_db:.1f} dB", anchor="w", fill=self.colors["text"], font=("Segoe UI", 9, "bold"))
 
     def _draw_waterfall(self, matrix: np.ndarray, min_db: float, max_db: float) -> None:
         canvas = self.waterfall_canvas
@@ -327,8 +472,8 @@ class WaveRiderTkGui:
 
         red = np.clip((norm * 2.0) * 255.0, 0, 255).astype(np.uint8)
         green = np.clip(np.sin(np.pi * norm) * 255.0, 0, 255).astype(np.uint8)
-        blue = np.clip(((1.0 - norm) ** 2) * 255.0, 0, 255).astype(np.uint8)
-        rgb = np.dstack((red, green, blue))
+        blue = np.clip((1.0 - norm) * (1.0 - norm) * 255.0, 0, 255).astype(np.uint8)
+        rgb = np.stack((red, green, blue), axis=-1)
 
         lines: list[str] = []
         for row in rgb:
