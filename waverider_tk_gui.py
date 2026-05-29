@@ -37,7 +37,6 @@ class WaveRiderTkGui:
         _signal_thread.start()
         self.waterfall_photo: tk.PhotoImage | None = None
         self.spectrum_points: list[float] = []
-        self.advanced_visible = False
         self.device_drawer_visible = False
         self.shortcuts_overlay: tk.Toplevel | None = None
         self.selected_preset_slot = 0
@@ -241,103 +240,140 @@ class WaveRiderTkGui:
         splitter.add(visuals_card, weight=3)  # type: ignore[attr-defined]
 
         controls_card.columnconfigure(0, weight=1)
-        controls_card.columnconfigure(1, weight=1)
-        controls_card.rowconfigure(13, weight=1)
+        controls_card.rowconfigure(1, weight=1)
 
-        ttk.Label(controls_card, text="Control Panel", style="PanelTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        # Header with title
+        ttk.Label(controls_card, text="Control Panel", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8), padx=(0, 8))
 
-        ttk.Label(controls_card, text="Band", style="Body.TLabel").grid(row=1, column=0, sticky="w")
+        # Create tabbed interface
+        self.control_tabs = ttk.Notebook(controls_card)
+        self.control_tabs.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+
+        # ============= TAB 1: GENERAL =============
+        general_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
+        general_tab.columnconfigure(0, weight=1)
+        general_tab.columnconfigure(1, weight=1)
+        self.control_tabs.add(general_tab, text="General")
+
+        ttk.Label(general_tab, text="Band", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 0))
         self.band_var = tk.StringVar(value="")
         self.band_combo = ttk.Combobox(
-            controls_card,
+            general_tab,
             textvariable=self.band_var,
             values=[band.name for band in BANDS],
             state="readonly",
         )
-        self.band_combo.grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
+        self.band_combo.grid(row=1, column=0, sticky="ew", padx=12, pady=(2, 10))
         self.band_combo.bind("<<ComboboxSelected>>", self._on_band_change)
 
-        ttk.Label(controls_card, text="Frequency (MHz)", style="Body.TLabel").grid(row=1, column=1, sticky="w")
+        ttk.Label(general_tab, text="Frequency (MHz)", style="Body.TLabel").grid(row=0, column=1, sticky="w", padx=12, pady=(12, 0))
         self.freq_var = tk.StringVar(value="100.0")
-        ttk.Entry(controls_card, textvariable=self.freq_var).grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(general_tab, textvariable=self.freq_var).grid(row=1, column=1, sticky="ew", padx=12, pady=(2, 10))
 
-        ttk.Label(controls_card, text="Sample Rate (Hz)", style="Body.TLabel").grid(row=3, column=0, sticky="w")
-        self.sample_var = tk.StringVar(value="2400000")
-        ttk.Combobox(
-            controls_card,
-            textvariable=self.sample_var,
-            values=["2400000", "2048000", "1024000"],
-            state="readonly",
-        ).grid(row=4, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
-
-        ttk.Label(controls_card, text="FFT Size", style="Body.TLabel").grid(row=3, column=1, sticky="w")
-        self.fft_var = tk.StringVar(value="1024")
-        ttk.Combobox(
-            controls_card,
-            textvariable=self.fft_var,
-            values=["512", "1024", "2048", "4096"],
-            state="readonly",
-        ).grid(row=4, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
-
-        ttk.Label(controls_card, text="Mode", style="Body.TLabel").grid(row=5, column=0, sticky="w")
+        ttk.Label(general_tab, text="Mode", style="Body.TLabel").grid(row=2, column=0, sticky="w", padx=12, pady=(0, 0))
         self.mode_var = tk.StringVar(value="None")
         ttk.Combobox(
-            controls_card,
+            general_tab,
             textvariable=self.mode_var,
             values=["None", "AM", "FM", "USB", "LSB", "CW"],
             state="readonly",
-        ).grid(row=6, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ).grid(row=3, column=0, sticky="ew", padx=12, pady=(2, 10))
 
-        preset_memory = ttk.Frame(controls_card, style="Card.TFrame")
-        preset_memory.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(2, 0))
-        preset_memory.columnconfigure(0, weight=1)
-        ttk.Label(preset_memory, text="Preset Memory", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        preset_slots_row = ttk.Frame(preset_memory, style="Card.TFrame")
-        preset_slots_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(general_tab, text="Sample Rate (Hz)", style="Body.TLabel").grid(row=2, column=1, sticky="w", padx=12, pady=(0, 0))
+        self.sample_var = tk.StringVar(value="2400000")
+        ttk.Combobox(
+            general_tab,
+            textvariable=self.sample_var,
+            values=["2400000", "2048000", "1024000"],
+            state="readonly",
+        ).grid(row=3, column=1, sticky="ew", padx=12, pady=(2, 10))
+
+        ttk.Label(general_tab, text="FFT Size", style="Body.TLabel").grid(row=4, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.fft_var = tk.StringVar(value="1024")
+        ttk.Combobox(
+            general_tab,
+            textvariable=self.fft_var,
+            values=["512", "1024", "2048", "4096"],
+            state="readonly",
+        ).grid(row=5, column=0, sticky="ew", padx=12, pady=(2, 12))
+
+        # ============= TAB 2: CW/MORSE =============
+        cw_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
+        cw_tab.columnconfigure(0, weight=1)
+        cw_tab.columnconfigure(1, weight=1)
+        self.control_tabs.add(cw_tab, text="CW/Morse")
+
+        ttk.Label(cw_tab, text="Morse Decode", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 0))
+        self.morse_enable_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            cw_tab, text="Enable Morse Decoder", variable=self.morse_enable_var,
+            command=self._toggle_morse_decode,
+        ).grid(row=1, column=0, sticky="w", padx=12, pady=(2, 10))
+
+        ttk.Label(cw_tab, text="WPM", style="Body.TLabel").grid(row=2, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.morse_wpm_var = tk.StringVar(value="20")
+        ttk.Entry(cw_tab, textvariable=self.morse_wpm_var, width=8).grid(row=3, column=0, sticky="w", padx=12, pady=(2, 10))
+
+        ttk.Label(cw_tab, text="Output", style="Body.TLabel").grid(row=4, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.morse_output_var = tk.StringVar(value="(none)")
+        morse_output_frame = ttk.Frame(cw_tab, style="Card.TFrame")
+        morse_output_frame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(2, 12))
+        morse_output_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            morse_output_frame,
+            textvariable=self.morse_output_var,
+            style="Body.TLabel",
+            background=self.colors["canvas"],
+            relief="sunken",
+        ).grid(row=0, column=0, sticky="ew")
+
+        # ============= TAB 3: PRESETS =============
+        preset_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
+        preset_tab.columnconfigure(0, weight=1)
+        self.control_tabs.add(preset_tab, text="Presets")
+
+        preset_slots_row = ttk.Frame(preset_tab, style="Card.TFrame")
+        preset_slots_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 0))
         preset_slots_row.columnconfigure((0, 1, 2, 3), weight=1)
         self.preset_buttons: list[ttk.Button] = []
         for index in range(3):
             button = ttk.Button(preset_slots_row, text=f"{index + 1} Empty", command=lambda slot=index: self._recall_preset(slot))
-            button.grid(row=0, column=index, sticky="ew", padx=(0, 8))
+            button.grid(row=0, column=index, sticky="ew", padx=(0, 6))
             self.preset_buttons.append(button)
         ttk.Button(preset_slots_row, text="Store Current", command=self._store_current_preset).grid(row=0, column=3, sticky="ew")
+
         ttk.Label(
-            preset_memory,
-            text="Ctrl+1..3 recalls a slot. Shift+Ctrl+1..3 stores the current frequency and mode.",
+            preset_tab,
+            text="Ctrl+1..3: Recall | Shift+Ctrl+1..3: Store",
             style="Muted.TLabel",
-            wraplength=340,
+            wraplength=320,
             justify="left",
-        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=1, column=0, sticky="w", padx=12, pady=(12, 0))
 
-        advanced_toggle_row = ttk.Frame(controls_card, style="Card.TFrame")
-        advanced_toggle_row.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        advanced_toggle_row.columnconfigure(0, weight=1)
-        self.advanced_button = ttk.Button(advanced_toggle_row, text="Advanced ▸", command=self._toggle_advanced)
-        self.advanced_button.grid(row=0, column=0, sticky="w")
+        # ============= TAB 4: ADVANCED =============
+        adv_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
+        adv_tab.columnconfigure(0, weight=1)
+        adv_tab.columnconfigure(1, weight=1)
+        self.control_tabs.add(adv_tab, text="Advanced")
 
-        self.advanced_frame = ttk.Frame(controls_card, style="Card.TFrame")
-        self.advanced_frame.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        self.advanced_frame.columnconfigure(0, weight=1)
-        self.advanced_frame.columnconfigure(1, weight=1)
-        self.advanced_frame.grid_remove()
-
-        ttk.Label(self.advanced_frame, text="Squelch (dB)", style="Body.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(adv_tab, text="Squelch (dB)", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 0))
         self.squelch_var = tk.StringVar(value="-50")
-        ttk.Entry(self.advanced_frame, textvariable=self.squelch_var).grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(adv_tab, textvariable=self.squelch_var).grid(row=1, column=0, sticky="ew", padx=12, pady=(2, 10))
 
-        ttk.Label(self.advanced_frame, text="Min dB", style="Body.TLabel").grid(row=0, column=1, sticky="w")
+        ttk.Label(adv_tab, text="Min dB", style="Body.TLabel").grid(row=0, column=1, sticky="w", padx=12, pady=(12, 0))
         self.min_db_var = tk.StringVar(value="-80")
-        ttk.Entry(self.advanced_frame, textvariable=self.min_db_var).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(adv_tab, textvariable=self.min_db_var).grid(row=1, column=1, sticky="ew", padx=12, pady=(2, 10))
 
-        ttk.Label(self.advanced_frame, text="Max dB", style="Body.TLabel").grid(row=2, column=0, sticky="w")
+        ttk.Label(adv_tab, text="Max dB", style="Body.TLabel").grid(row=2, column=0, sticky="w", padx=12, pady=(0, 0))
         self.max_db_var = tk.StringVar(value="0")
-        ttk.Entry(self.advanced_frame, textvariable=self.max_db_var).grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Entry(adv_tab, textvariable=self.max_db_var).grid(row=3, column=0, sticky="ew", padx=12, pady=(2, 10))
 
-        ttk.Label(self.advanced_frame, text="Auto Range", style="Body.TLabel").grid(row=2, column=1, sticky="w")
-        ttk.Button(self.advanced_frame, text="Auto", command=self._auto_range_db).grid(row=3, column=1, sticky="ew", padx=(0, 8), pady=(2, 10))
+        ttk.Label(adv_tab, text="Auto Range", style="Body.TLabel").grid(row=2, column=1, sticky="w", padx=12, pady=(0, 0))
+        ttk.Button(adv_tab, text="Auto", command=self._auto_range_db).grid(row=3, column=1, sticky="ew", padx=12, pady=(2, 10))
 
+        # Signal meter (at bottom of all tabs)
         meter_frame = ttk.Frame(controls_card, style="Card.TFrame")
-        meter_frame.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        meter_frame.grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=(8, 0))
         meter_frame.columnconfigure(0, weight=1)
         ttk.Label(meter_frame, text="Signal Meter", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.meter_canvas = tk.Canvas(
@@ -350,26 +386,13 @@ class WaveRiderTkGui:
         )
         self.meter_canvas.grid(row=1, column=0, sticky="ew", pady=(6, 0))
 
+        # Control buttons
         button_row = ttk.Frame(controls_card, style="Card.TFrame")
-        button_row.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        button_row.grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(8, 0))
         button_row.columnconfigure((0, 1, 2), weight=1)
         ttk.Button(button_row, text="Apply", style="Accent.TButton", command=self._apply_config).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ttk.Button(button_row, text="Start", style="Accent.TButton", command=self._start).grid(row=0, column=1, sticky="ew", padx=(0, 8))
         ttk.Button(button_row, text="Stop", style="Accent.TButton", command=self._stop).grid(row=0, column=2, sticky="ew")
-
-        ttk.Separator(controls_card, orient=tk.HORIZONTAL).grid(row=12, column=0, columnspan=2, sticky="ew", pady=(14, 10))
-
-        quickinfo = ttk.Frame(controls_card, style="Card.TFrame")
-        quickinfo.grid(row=13, column=0, columnspan=2, sticky="nsew", pady=(0, 0))
-        quickinfo.columnconfigure(0, weight=1)
-        ttk.Label(quickinfo, text="Operating Notes", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            quickinfo,
-            text="Use Apply after changing frequency or FFT size. Start pauses updates when you need a static view.",
-            style="Muted.TLabel",
-            wraplength=300,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         visuals_card.columnconfigure(0, weight=1)
         visuals_card.rowconfigure(1, weight=1)
@@ -587,6 +610,17 @@ class WaveRiderTkGui:
         with self.state.lock:
             self.state.waterfall_settings.peak_hold = self.peak_hold_var.get()
 
+    def _toggle_morse_decode(self) -> None:
+        with self.state.lock:
+            self.state.morse_enabled = self.morse_enable_var.get()
+            # Update WPM if specified
+            try:
+                wpm = float(self.morse_wpm_var.get())
+                if wpm > 0:
+                    self.state.morse_decoder.wpm = wpm
+            except ValueError:
+                pass
+
     def _toggle_device_drawer(self) -> None:
         self.device_drawer_visible = not self.device_drawer_visible
         if self.device_drawer_visible:
@@ -715,14 +749,6 @@ class WaveRiderTkGui:
                 self.freq_var.set(f"{self.state.center_freq / 1_000_000.0:.3f}")
                 self.mode_var.set(self.state.modulation_mode)
 
-    def _toggle_advanced(self) -> None:
-        self.advanced_visible = not self.advanced_visible
-        if self.advanced_visible:
-            self.advanced_frame.grid()
-            self.advanced_button.configure(text="Advanced ▾")
-        else:
-            self.advanced_frame.grid_remove()
-            self.advanced_button.configure(text="Advanced ▸")
 
     def _apply_view_preset(self, preset: str) -> None:
         if preset == "wide":
@@ -805,7 +831,10 @@ class WaveRiderTkGui:
         self._update_device_drawer(status)
 
         morse_text = status.get("morse_text") or ""
-        self.morse_var.set(str(morse_text if morse_text else "(none)"))
+        morse_display = str(morse_text if morse_text else "(none)")
+        self.morse_var.set(morse_display)
+        if hasattr(self, 'morse_output_var'):
+            self.morse_output_var.set(morse_display)
 
     def _draw_spectrum(
         self,
