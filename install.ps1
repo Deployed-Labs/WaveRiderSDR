@@ -1,47 +1,31 @@
-# WaveRider SDR Rust installer for Windows PowerShell
+# WaveRider SDR Python installer for Windows PowerShell
 #Requires -Version 5.0
 
 Write-Host "==========================================="
-Write-Host "WaveRider SDR MSI Build (Windows)"
+Write-Host "WaveRider SDR Python Setup (Windows)"
 Write-Host "==========================================="
 
-if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    Write-Host "[ERROR] Rust is not installed." -ForegroundColor Red
-    Write-Host "Install rustup from https://rustup.rs/" -ForegroundColor Yellow
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] Python is not installed." -ForegroundColor Red
+    Write-Host "Install Python 3.10+ and re-run this script." -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "[OK] Rust toolchain detected" -ForegroundColor Green
+Write-Host "[OK] Python detected" -ForegroundColor Green
 
-Write-Host "[*] Checking cargo-wix..." -ForegroundColor Cyan
-cargo wix --version *> $null
+Write-Host "[*] Installing Python dependencies..." -ForegroundColor Cyan
+python -m pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[*] Installing cargo-wix..." -ForegroundColor Cyan
-    cargo install cargo-wix --locked
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[ERROR] Failed to install cargo-wix" -ForegroundColor Red
-        exit 1
-    }
-}
-
-Write-Host "[*] Building release binary..." -ForegroundColor Cyan
-cargo build --release
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] Build failed" -ForegroundColor Red
+    Write-Host "[ERROR] Dependency installation failed" -ForegroundColor Red
     exit 1
 }
 
-if (-not (Test-Path dist)) {
-    New-Item -ItemType Directory -Path dist | Out-Null
-}
-
-$msiPath = Join-Path (Get-Location) "dist\\waverider_sdr.msi"
-Write-Host "[*] Building MSI installer..." -ForegroundColor Cyan
-cargo wix --no-build --output $msiPath
+Write-Host "[*] Verifying Python modules..." -ForegroundColor Cyan
+python -m py_compile run.py waverider_common.py waverider_web.py waverider_sdr.py
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] MSI build failed" -ForegroundColor Red
+    Write-Host "[ERROR] Python module validation failed" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "[OK] MSI created: $msiPath" -ForegroundColor Green
-Write-Host "Install with: msiexec /i $msiPath"
+Write-Host "[OK] Setup complete" -ForegroundColor Green
+Write-Host "Run with: python run.py --mode desktop"

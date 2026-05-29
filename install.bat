@@ -1,50 +1,37 @@
 @echo off
-REM WaveRider SDR MSI build helper for Windows
+REM WaveRider SDR Python setup helper for Windows
 
 setlocal
 
 echo ===========================================
-echo WaveRider SDR MSI Build (Windows)
+echo WaveRider SDR Python Setup (Windows)
 echo ===========================================
 
-REM Check cargo availability
-cargo --version >nul 2>&1
+REM Check Python availability
+python --version >nul 2>&1
 if %errorlevel% neq 0 (
-  echo [ERROR] Rust is not installed.
-  echo Install from https://rustup.rs/ then re-run this script.
+  echo [ERROR] Python is not installed.
+  echo Install Python 3.10+ then re-run this script.
   exit /b 1
 )
 
-echo [OK] Rust toolchain detected
+echo [OK] Python detected
 
-echo [*] Checking cargo-wix...
-cargo wix --version >nul 2>&1
+echo [*] Installing Python dependencies...
+python -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
-  echo [*] Installing cargo-wix...
-  cargo install cargo-wix --locked
-  if %errorlevel% neq 0 (
-    echo [ERROR] Failed to install cargo-wix
-    exit /b 1
-  )
-)
-
-echo [*] Building release binary...
-cargo build --release
-if %errorlevel% neq 0 (
-  echo [ERROR] Build failed
+  echo [ERROR] Dependency installation failed
   exit /b 1
 )
 
-if not exist dist mkdir dist
-
-echo [*] Building MSI installer...
-cargo wix --no-build --output dist\waverider_sdr.msi
+echo [*] Verifying Python modules...
+python -m py_compile run.py waverider_common.py waverider_web.py waverider_sdr.py
 if %errorlevel% neq 0 (
-  echo [ERROR] MSI build failed
+  echo [ERROR] Python module validation failed
   exit /b 1
 )
 
-echo [OK] MSI created: dist\waverider_sdr.msi
-echo Install with: msiexec /i dist\waverider_sdr.msi
+echo [OK] Setup complete
+echo Run with: python run.py --mode desktop
 
 exit /b 0

@@ -50,7 +50,7 @@ Open `http://localhost:5000` in your browser.
 
 ## Packaging
 
-The repository still includes Rust artifacts and build metadata from earlier versions, but runtime operation is now provided by Python entrypoints.
+Python entrypoints are the runtime and packaging source of truth for this repository.
 
 ## Modes
 

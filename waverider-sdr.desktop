@@ -18,8 +18,8 @@ Actions=Web;Desktop;
 
 [Desktop Action Web]
 Name=Launch Web Interface
-Exec=INSTALL_DIR_PLACEHOLDER/run.py --web
+Exec=INSTALL_DIR_PLACEHOLDER/run.py --mode web
 
 [Desktop Action Desktop]
 Name=Launch Desktop GUI
-Exec=INSTALL_DIR_PLACEHOLDER/run.py --desktop
+Exec=INSTALL_DIR_PLACEHOLDER/run.py --mode desktop
