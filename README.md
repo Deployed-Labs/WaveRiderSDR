@@ -1,11 +1,11 @@
-# WaveRider SDR (Rust)
+# WaveRider SDR (Python)
 
-WaveRider SDR has been migrated from Python to Rust.
+WaveRider SDR now runs fully in Python with a GUI-focused web dashboard and desktop launcher.
 
 ## What Is Implemented
 
-- Universal Rust launcher with mode selection
-- Web SDR interface served from Rust using Axum
+- Universal Python launcher with mode selection
+- Web SDR interface served from Flask
 - Simulated IQ signal generation
 - FFT + waterfall + waveform processing
 - CW envelope decoding with Morse text extraction
@@ -15,67 +15,42 @@ WaveRider SDR has been migrated from Python to Rust.
 
 ## Project Layout
 
-- `src/main.rs`: launcher and mode selection
-- `src/web.rs`: HTTP server and SDR API routes
-- `src/state.rs`: shared runtime state and update tick
-- `src/dsp.rs`: signal generator, FFT, demod basics
-- `src/morse.rs`: Morse decoder
-- `src/band_plan.rs`: frequency band definitions
-- `src/common.rs`: waterfall settings and hardware placeholders
-	Device detection and SDR connection state management
+- `run.py`: universal launcher (`auto`, `web`, `desktop`)
+- `waverider_web.py`: Flask app and SDR API routes
+- `waverider_sdr.py`: desktop-mode launcher
+- `waverider_common.py`: shared runtime state, DSP, bands, Morse decoder
 - `templates/index.html`: web dashboard
 
 ## Quick Start
 
-### 1. Install Rust
-
-Use rustup: https://rustup.rs/
-
-### 2. Build
+### 1. Install Python dependencies
 
 ```bash
-cargo build --release
+python -m pip install -r requirements.txt
 ```
 
-### 3. Run Web Interface
+### 2. Run Desktop GUI Mode
 
 ```bash
-cargo run --release -- --mode web --host 0.0.0.0 --port 5000
+python run.py --mode desktop
 ```
 
-Open http://localhost:5000 in your browser.
-
-### 4. Run Executable (GUI or Web)
-
-After building, run the executable directly:
+### 3. Run Web Mode
 
 ```bash
-target/release/waverider_sdr --mode desktop
+python run.py --mode web --host 0.0.0.0 --port 5000
 ```
 
-On Windows:
+Open `http://localhost:5000` in your browser.
 
-```powershell
-.\target\release\waverider_sdr.exe --mode desktop
-```
+### Alternate launchers
 
-For web-only mode with explicit host/port:
+- Desktop launcher: `python waverider_sdr.py`
+- Web launcher: `python waverider_web.py --open-browser`
 
-```powershell
-.\target\release\waverider_sdr.exe --mode web --host 0.0.0.0 --port 5000
-```
+## Packaging
 
-## Windows MSI Release
-
-GitHub Actions publishes a single MSI installer for each version tag.
-
-- Latest MSI download: https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest/download/WaveRiderSDR-windows-x64.msi
-- Releases page: https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest
-
-The MSI installs WaveRiderSDR and creates a desktop shortcut.
-
-Version tags are managed as patch increments: each release tag increases by `0.0.1`.
-On pushes to `main`, the workflow automatically creates and pushes the next patch tag.
+The repository still includes Rust artifacts and build metadata from earlier versions, but runtime operation is now provided by Python entrypoints.
 
 ## Modes
 
@@ -83,15 +58,14 @@ On pushes to `main`, the workflow automatically creates and pushes the next patc
 - `--mode desktop`: starts the local server and opens the GUI automatically in your default browser
 - `--mode auto`: chooses desktop on GUI-capable hosts, otherwise web
 
-## Compatibility Notes
-
-Legacy Python files remain only as compatibility shims and no longer contain SDR logic.
-
 ## Status
 
-- Rust migration complete for launcher, shared DSP engine, and web interface.
+- Python runtime restored for launcher, DSP engine, and web interface.
 - Hardware tool detection for RTL-SDR/HackRF is implemented (PATH/tool based).
-- Direct IQ capture backends for RTL-SDR/HackRF are still pending; signal processing currently runs on simulated samples.
+- Direct IQ capture is available when Python bindings are installed:
+	- RTL-SDR: `pyrtlsdr`
+	- HackRF: `SoapySDR` Python bindings
+- Without those bindings, signal processing runs on simulated samples with graceful fallback.
 
 ## Device APIs
 

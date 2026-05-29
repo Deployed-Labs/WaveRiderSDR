@@ -1,26 +1,47 @@
-"""
-Legacy compatibility launcher.
-WaveRider SDR is now implemented in Rust.
-"""
+"""Universal Python launcher for WaveRider SDR."""
 
-import subprocess
-import sys
-from pathlib import Path
+from __future__ import annotations
+
+import argparse
+import os
+import platform
+
+from waverider_web import run_web
+
+
+def detect_mode(mode: str) -> str:
+    if mode in {"web", "desktop"}:
+        return mode
+
+    system = platform.system().lower()
+    if system in {"windows", "darwin"}:
+        return "desktop"
+
+    if os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"):
+        return "desktop"
+    return "web"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="WaveRider SDR Python launcher")
+    parser.add_argument("--mode", choices=["auto", "web", "desktop"], default="auto")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=5000)
+    return parser
 
 
 def main() -> int:
-    repo = Path(__file__).parent
-    cargo_toml = repo / "Cargo.toml"
-    if not cargo_toml.exists():
-        print("Cargo.toml not found. The Rust project is missing.")
-        return 1
+    args = build_parser().parse_args()
+    selected_mode = detect_mode(args.mode)
+    open_browser = selected_mode == "desktop"
 
-    args = ["cargo", "run", "--release", "--"] + sys.argv[1:]
-    try:
-        return subprocess.call(args, cwd=str(repo))
-    except FileNotFoundError:
-        print("Rust toolchain is not installed. Install rustup from https://rustup.rs/")
-        return 1
+    print("\n============================================================")
+    print("  WAVERIDER SDR (PYTHON)")
+    print("  Universal Cross-Platform Launcher")
+    print("============================================================\n")
+    print(f"Selected mode: {selected_mode}")
+
+    return run_web(host=args.host, port=args.port, open_browser=open_browser)
 
 
 if __name__ == "__main__":

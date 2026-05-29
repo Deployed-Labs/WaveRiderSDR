@@ -1,3 +1,8 @@
-# Legacy Python dependencies file.
-# WaveRider SDR now uses Rust dependencies in Cargo.toml.
+flask>=3.0.0
+numpy>=1.26.0
+pyserial>=3.5
+
+# Optional hardware backends (install manually as available on your platform):
+# pyrtlsdr
+# SoapySDR
 

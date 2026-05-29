@@ -1,20 +1,19 @@
-# Quickstart (Rust)
+# Quickstart (Python)
 
 ## Prerequisites
 
-- Rust toolchain installed via rustup
+- Python 3.10+
 
-## Windows (Release)
+## Install
 
-1. Download the latest MSI:
-	https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest/download/WaveRiderSDR-windows-x64.msi
-2. Run the MSI installer.
-3. Launch WaveRiderSDR from the desktop shortcut.
+```bash
+python -m pip install -r requirements.txt
+```
 
 ## Run
 
 ```bash
-cargo run --release -- --mode web
+python run.py --mode desktop
 ```
 
 Then open:
@@ -24,18 +23,18 @@ Then open:
 ## Alternate Commands
 
 ```bash
-cargo build --release
+python run.py --mode web --host 0.0.0.0 --port 5000
 ```
 
-Windows binary:
+Desktop launcher:
 
 ```powershell
-.\target\release\waverider_sdr.exe --mode web
+python waverider_sdr.py
 ```
 
-Linux/macOS binary:
+Web launcher:
 
 ```bash
-./target/release/waverider_sdr --mode web
+python waverider_web.py --open-browser
 ```
 

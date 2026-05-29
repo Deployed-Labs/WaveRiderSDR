@@ -1,53 +1,24 @@
-# Installation (Rust)
+# Installation (Python)
 
-## Windows
-
-### Release install (recommended)
-
-1. Download the latest MSI:
-	https://github.com/Deployed-Labs/WaveRiderSDR/releases/latest/download/WaveRiderSDR-windows-x64.msi
-2. Run the MSI.
-3. Use the created desktop shortcut: WaveRiderSDR.
-
-### Build MSI locally (PowerShell)
-
-```powershell
-.\install.ps1
-```
-
-### Build MSI locally (Command Prompt)
-
-```cmd
-install.bat
-```
-
-After building locally, install with:
-
-```powershell
-msiexec /i .\dist\waverider_sdr.msi
-```
-
-## Linux / macOS
+## Windows / Linux / macOS
 
 ```bash
-chmod +x install.sh
-./install.sh
+python -m pip install -r requirements.txt
 ```
 
-## Manual
+## Run
 
-1. Install rustup from https://rustup.rs/
-2. Build:
+Desktop mode (opens browser automatically):
 
 ```bash
-cargo build --release
+python run.py --mode desktop
 ```
 
-3. Run:
+Web mode:
 
 ```bash
-cargo run --release -- --mode web
+python run.py --mode web --host 0.0.0.0 --port 5000
 ```
 
-4. Open http://localhost:5000
+Then open http://localhost:5000
 
