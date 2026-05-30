@@ -162,6 +162,84 @@
       border: 1px solid var(--line);
     }
 
+    .status-chip {
+      display: inline-block;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      min-width: 210px;
+    }
+
+    .status-chip.recording {
+      border-color: #d84e44;
+      background: rgba(216, 78, 68, 0.12);
+    }
+
+    .status-chip.iq {
+      border-color: #7b2fc9;
+      background: rgba(123, 47, 201, 0.12);
+    }
+
+    .scan-header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .scan-badge {
+      font-size: 0.78rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 10px;
+      color: var(--muted);
+      background: var(--panel-2);
+    }
+
+    .scan-progress {
+      margin-top: 8px;
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      display: none;
+    }
+
+    .scan-progress > div {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #2cc7b7, #1aa88f);
+      transition: width 180ms ease;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      max-width: 360px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+      z-index: 2000;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     .theme-toggle {
       background: linear-gradient(135deg, #2a3f5f, #1a2f4f);
       border: 1px solid var(--line);
@@ -428,13 +506,14 @@
           <div class="control"><button id="stopBtn" class="btn-stop">Stop</button></div>
           <div class="control"><button id="recordBtn" class="btn-primary">🔴 Record</button></div>
           <div class="control"><button id="stopRecordBtn" class="btn-danger" style="display:none;">⏹ Stop Record</button></div>
-          <div id="recordStatus" style="display:none; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 12px;"></div>
+          <div id="recordStatus" class="status-chip recording" style="display:none;"></div>
           <div class="control"><button id="iqRecordBtn" class="btn-primary" style="background: linear-gradient(135deg, #7b2fc9, #5a1f9a);">📡 IQ Record</button></div>
           <div class="control"><button id="stopIqBtn" class="btn-danger" style="display:none;">⏹ Stop IQ</button></div>
-          <div id="iqStatus" style="display:none; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 12px;"></div>
+          <div id="iqStatus" class="status-chip iq" style="display:none;"></div>
         </div>
 
         <div class="row" style="margin-top:12px;">
+          <div class="control">
             <label>Min dB</label>
             <input id="minDb" type="number" value="-80" />
           </div>
@@ -486,7 +565,10 @@
     <section class="card">
       <div class="card-header">
         <h2>Frequency Scanner</h2>
-        <span id="scanStatus" style="font-size:0.85rem; color:var(--muted);">Idle</span>
+        <div class="scan-header">
+          <span id="scanBadge" class="scan-badge">Ready</span>
+          <span id="scanStatus" style="font-size:0.85rem; color:var(--muted);">Idle</span>
+        </div>
       </div>
       <div class="pane">
         <div class="row">
@@ -521,6 +603,7 @@
           </div>
         </div>
         <div id="scanInfo" style="margin-top:6px; font-size:0.82rem; color:var(--muted); display:none;"></div>
+        <div class="scan-progress" id="scanProgress"><div id="scanProgressFill"></div></div>
       </div>
     </section>
 
@@ -559,6 +642,8 @@
       <div class="log-messages" id="logMessages"></div>
     </section>
   </main>
+
+  <div id="toast" class="toast"></div>
 
   <script>
     // ========== Theme Management ==========
@@ -643,7 +728,21 @@
       scanStopBtn: document.getElementById("scanStopBtn"),
       scanStatus: document.getElementById("scanStatus"),
       scanInfo: document.getElementById("scanInfo"),
+      scanBadge: document.getElementById("scanBadge"),
+      scanProgress: document.getElementById("scanProgress"),
+      scanProgressFill: document.getElementById("scanProgressFill"),
     };
+
+    function showToast(message, level = "info") {
+      const t = document.getElementById("toast");
+      if (!t) return;
+      t.textContent = message;
+      t.style.borderColor = level === "error" ? "#d84e44" : "var(--line)";
+      t.classList.add("show");
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => t.classList.remove("show"), 2600);
+    }
+    showToast._timer = null;
 
     // ========== Band Management ==========
     let allBands = [];
@@ -769,6 +868,7 @@
           const json = JSON.parse(text);
           if (!res.ok && json.error) {
             addLog("error", `API error: ${json.error}`);
+            showToast(json.error, "error");
           }
           return json;
         } catch { 
@@ -776,6 +876,7 @@
         }
       } catch (err) {
         addLog("error", `Network error: ${err.message}`);
+        showToast(`Network error: ${err.message}`, "error");
         throw err;
       }
     }
@@ -1044,10 +1145,6 @@
       updateBandwidthLabel();
     });
 
-    // Audio Recording
-    let recordingStatus = null;
-    let recordingCheckInterval = null;
-
     // IQ Recording
     let iqCheckInterval = null;
 
@@ -1065,7 +1162,7 @@
           const dur = status.duration_seconds.toFixed(1);
           const sz = status.file_size_mb.toFixed(1);
           const freq = status.center_freq_mhz.toFixed(3);
-          iqStatusDiv.textContent = `IQ @ ${freq}MHz | ${dur}s | ${sz}MB`;
+          iqStatusDiv.textContent = `IQ @ ${freq} MHz | ${dur}s | ${sz}MB`;
         } else {
           iqRecordBtn.style.display = "inline-block";
           stopIqBtn.style.display = "none";
@@ -1132,7 +1229,7 @@
           recordStatusDiv.style.display = "none";
         }
       } catch (e) {
-        console.log("Recording status check skipped");
+        // non-critical polling error
       }
     }
 
@@ -1214,6 +1311,12 @@
     // ── Frequency Scanner ──────────────────────────────────────────────────
     let scanPollInterval = null;
 
+    function setScanProgress(percent) {
+      const p = Math.max(0, Math.min(100, percent));
+      controls.scanProgress.style.display = "block";
+      controls.scanProgressFill.style.width = `${p.toFixed(1)}%`;
+    }
+
     async function updateScanStatus() {
       try {
         const s = await api("/api/scan/status");
@@ -1222,16 +1325,22 @@
           const label = s.signal_paused ? `⏸ Paused — signal on ${freqMHz} MHz` : `▶ Scanning — ${freqMHz} MHz`;
           controls.scanStatus.textContent = label;
           controls.scanStatus.style.color = s.signal_paused ? "#1aa88f" : "var(--accent)";
+          controls.scanBadge.textContent = s.signal_paused ? "Signal Hold" : "Scanning";
           controls.scanInfo.style.display = "block";
           controls.scanInfo.textContent =
             `Range: ${(s.start_hz/1e6).toFixed(3)}–${(s.stop_hz/1e6).toFixed(3)} MHz  ` +
             `Step: ${(s.step_hz/1e3).toFixed(1)} kHz  Dwell: ${s.dwell_ms} ms`;
+          const total = Math.max(1, s.stop_hz - s.start_hz);
+          const current = Math.max(0, s.current_freq_hz - s.start_hz);
+          setScanProgress((current / total) * 100);
           controls.scanStartBtn.style.display = "none";
           controls.scanStopBtn.style.display = "";
         } else {
           controls.scanStatus.textContent = "Idle";
           controls.scanStatus.style.color = "var(--muted)";
+          controls.scanBadge.textContent = "Ready";
           controls.scanInfo.style.display = "none";
+          controls.scanProgress.style.display = "none";
           controls.scanStartBtn.style.display = "";
           controls.scanStopBtn.style.display = "none";
           if (scanPollInterval) { clearInterval(scanPollInterval); scanPollInterval = null; }
@@ -1251,10 +1360,11 @@
         body: JSON.stringify({ start_hz, stop_hz, step_hz, dwell_ms, pause_on_signal })
       });
       if (res.ok) {
+        controls.scanBadge.textContent = "Starting...";
         scanPollInterval = setInterval(updateScanStatus, 500);
         updateScanStatus();
       } else {
-        alert("Scan error: " + (res.error || "unknown"));
+        showToast("Scan error: " + (res.error || "unknown"), "error");
       }
     });
 
@@ -1277,7 +1387,7 @@
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, w, h);
 
-      const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+      const isDark = !document.documentElement.classList.contains("light-mode");
       const lineColor = isDark ? "#1aa88f" : "#0d8c77";
       const squelchColor = "rgba(216,78,68,0.5)";
       const gridColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)";
@@ -1349,6 +1459,7 @@
 
     setInterval(refreshSparkline, 2000);
     refreshSparkline();
+    updateScanStatus();
 
     async function loop() {
       await refreshStatus();
