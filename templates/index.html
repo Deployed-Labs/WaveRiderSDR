@@ -115,6 +115,8 @@
 
     .btn-start { background: linear-gradient(135deg, #1aa88f, var(--accent)); }
     .btn-stop { background: linear-gradient(135deg, #d84e44, var(--danger)); }
+    .btn-primary { background: linear-gradient(135deg, #0066cc, #0052a3); }
+    .btn-danger { background: linear-gradient(135deg, #cc0000, #990000); }
 
     .grid {
       display: grid;
@@ -403,7 +405,12 @@
         <div class="row" style="margin-top:12px;">
           <div class="control"><button id="startBtn" class="btn-start">Start</button></div>
           <div class="control"><button id="stopBtn" class="btn-stop">Stop</button></div>
-          <div class="control">
+          <div class="control"><button id="recordBtn" class="btn-primary">🔴 Record</button></div>
+          <div class="control"><button id="stopRecordBtn" class="btn-danger" style="display:none;">⏹ Stop Record</button></div>
+          <div id="recordStatus" style="display:none; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 12px;"></div>
+        </div>
+
+        <div class="row" style="margin-top:12px;">
             <label>Min dB</label>
             <input id="minDb" type="number" value="-80" />
           </div>
@@ -844,6 +851,72 @@
       await api("/api/stop", { method: "POST" });
       addLog("info", "SDR stopped");
       await refreshStatus();
+    });
+
+    // Audio Recording
+    let recordingStatus = null;
+    let recordingCheckInterval = null;
+
+    async function updateRecordingStatus() {
+      try {
+        const response = await fetch("/api/record/status");
+        recordingStatus = await response.json();
+        
+        const recordBtn = document.getElementById("recordBtn");
+        const stopRecordBtn = document.getElementById("stopRecordBtn");
+        const recordStatusDiv = document.getElementById("recordStatus");
+        
+        if (recordingStatus.recording) {
+          recordBtn.style.display = "none";
+          stopRecordBtn.style.display = "inline-block";
+          recordStatusDiv.style.display = "inline-block";
+          
+          const duration = recordingStatus.duration_seconds.toFixed(1);
+          const size = recordingStatus.file_size_mb.toFixed(2);
+          recordStatusDiv.textContent = `Recording: ${recordingStatus.filename} | ${duration}s | ${size}MB`;
+        } else {
+          recordBtn.style.display = "inline-block";
+          stopRecordBtn.style.display = "none";
+          recordStatusDiv.style.display = "none";
+        }
+      } catch (e) {
+        console.log("Recording status check skipped");
+      }
+    }
+
+    document.getElementById("recordBtn").addEventListener("click", async () => {
+      try {
+        const response = await api("/api/record/start", { method: "POST" });
+        if (response.ok) {
+          addLog("info", `Recording started: ${response.filename}`);
+          
+          // Start checking recording status every 500ms
+          if (recordingCheckInterval) clearInterval(recordingCheckInterval);
+          recordingCheckInterval = setInterval(updateRecordingStatus, 500);
+          
+          updateRecordingStatus();
+        } else {
+          addLog("error", `Recording failed: ${response.error}`);
+        }
+      } catch (e) {
+        addLog("error", `Recording error: ${e.message}`);
+      }
+    });
+
+    document.getElementById("stopRecordBtn").addEventListener("click", async () => {
+      try {
+        const response = await api("/api/record/stop", { method: "POST" });
+        if (response.ok) {
+          addLog("info", response.message);
+        } else {
+          addLog("error", `Stop recording failed: ${response.error}`);
+        }
+        
+        if (recordingCheckInterval) clearInterval(recordingCheckInterval);
+        updateRecordingStatus();
+      } catch (e) {
+        addLog("error", `Stop recording error: ${e.message}`);
+      }
     });
 
     controls.scanSdrBtn.addEventListener("click", async () => {

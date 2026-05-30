@@ -6,15 +6,121 @@ import argparse
 import os
 import threading
 import time
+import wave
 import webbrowser
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 from flask import Flask, jsonify, render_template, request
 
 from waverider_common import AppState, bands_as_dicts, run_startup_preflight
+
+
+class AudioRecorder:
+    """Records audio samples to WAV files."""
+    def __init__(self, recording_dir: str = "recordings"):
+        self.recording_dir = Path(recording_dir)
+        self.recording_dir.mkdir(exist_ok=True)
+        self.recording = False
+        self.current_file: str | None = None
+        self.wav_file: wave.Wave_write | None = None
+        self.sample_rate = 48000  # Resample to 48kHz for playback
+        self.num_channels = 1
+        self.sample_width = 2  # 16-bit
+        self.samples_written = 0
+        self.lock = threading.Lock()
+    
+    def start_recording(self) -> tuple[bool, str]:
+        """Start recording audio to a new file."""
+        with self.lock:
+            if self.recording:
+                return False, "Recording already in progress"
+            
+            try:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"recording_{timestamp}.wav"
+                filepath = self.recording_dir / filename
+                
+                self.wav_file = wave.open(str(filepath), 'wb')
+                self.wav_file.setnchannels(self.num_channels)
+                self.wav_file.setsampwidth(self.sample_width)
+                self.wav_file.setframerate(self.sample_rate)
+                
+                self.recording = True
+                self.current_file = filename
+                self.samples_written = 0
+                return True, filename
+            except Exception as e:
+                return False, f"Failed to start recording: {str(e)}"
+    
+    def stop_recording(self) -> tuple[bool, str]:
+        """Stop recording and close the file."""
+        with self.lock:
+            if not self.recording:
+                return False, "No recording in progress"
+            
+            try:
+                if self.wav_file:
+                    self.wav_file.close()
+                filename = self.current_file
+                self.recording = False
+                self.current_file = None
+                self.wav_file = None
+                duration = self.samples_written / self.sample_rate
+                return True, f"Recording saved: {filename} ({duration:.1f}s)"
+            except Exception as e:
+                return False, f"Failed to stop recording: {str(e)}"
+    
+    def write_samples(self, samples: np.ndarray) -> None:
+        """Write audio samples to the current recording file."""
+        if not self.recording or not self.wav_file:
+            return
+        
+        try:
+            # Convert complex IQ samples to 16-bit mono audio (simple magnitude)
+            # In a real implementation, this would be properly demodulated audio
+            if samples.dtype in (np.complex64, np.complex128):
+                audio = np.abs(samples).astype(np.float32)
+            else:
+                audio = samples.astype(np.float32)
+            
+            # Normalize to 16-bit range (-32768 to 32767)
+            max_val = np.max(np.abs(audio))
+            if max_val > 0:
+                audio = audio / max_val * 32767
+            else:
+                audio = audio * 32767
+            
+            # Convert to 16-bit integers
+            audio_int16 = np.int16(audio)
+            
+            # Write to WAV file
+            self.wav_file.writeframes(audio_int16.tobytes())
+            self.samples_written += len(audio)
+        except Exception:
+            pass  # Silently fail if write fails
+    
+    def get_status(self) -> dict[str, Any]:
+        """Get current recording status."""
+        with self.lock:
+            if self.recording:
+                duration = self.samples_written / self.sample_rate
+                file_size = (self.samples_written * self.sample_width) / (1024 * 1024)  # MB
+                return {
+                    "recording": True,
+                    "filename": self.current_file,
+                    "duration_seconds": duration,
+                    "file_size_mb": file_size,
+                }
+            return {
+                "recording": False,
+                "filename": None,
+                "duration_seconds": 0,
+                "file_size_mb": 0,
+            }
 
 
 class SDRAutoReconnect:
@@ -149,7 +255,7 @@ def _validate_fft_size(size: Any) -> tuple[bool, str]:
         return False, "FFT size must be an integer"
 
 
-def create_app(state: AppState, logs: LogManager) -> Flask:
+def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder) -> Flask:
     app = Flask(__name__, template_folder="templates")
 
     @app.get("/")
@@ -284,14 +390,41 @@ def create_app(state: AppState, logs: LogManager) -> Flask:
                 "center_freq": state.center_freq,
             })
 
+    @app.post("/api/record/start")
+    def api_record_start():
+        ok, message = recorder.start_recording()
+        if ok:
+            logs.add("info", f"Recording started: {message}")
+            return jsonify({"ok": True, "filename": message}), 200
+        else:
+            logs.add("warning", f"Recording start failed: {message}")
+            return jsonify({"ok": False, "error": message}), 400
+
+    @app.post("/api/record/stop")
+    def api_record_stop():
+        ok, message = recorder.stop_recording()
+        if ok:
+            logs.add("info", f"Recording stopped: {message}")
+            return jsonify({"ok": True, "message": message}), 200
+        else:
+            logs.add("warning", f"Recording stop failed: {message}")
+            return jsonify({"ok": False, "error": message}), 400
+
+    @app.get("/api/record/status")
+    def api_record_status():
+        return jsonify(recorder.get_status())
+
     return app
 
 
-def _run_tick_loop(state: AppState, stop_event: threading.Event, auto_reconnect: SDRAutoReconnect) -> None:
+def _run_tick_loop(state: AppState, stop_event: threading.Event, auto_reconnect: SDRAutoReconnect, recorder: AudioRecorder) -> None:
     while not stop_event.is_set():
         with state.lock:
             if state.running:
                 state.tick()
+                # Write samples to recording if active
+                if recorder.recording and state.waveform_data is not None:
+                    recorder.write_samples(state.waveform_data)
             # Check for SDR disconnection and attempt reconnect
             auto_reconnect.update(state)
         time.sleep(0.08)
@@ -306,17 +439,20 @@ def run_web(host: str = "0.0.0.0", port: int = 5000, open_browser: bool = False)
     logs = LogManager()
     logs.add("info", "WaveRider SDR initialized")
     
+    recorder = AudioRecorder()
+    logs.add("info", "Audio recorder initialized")
+    
     state = AppState()
     auto_reconnect = SDRAutoReconnect(logs)
     
     if preflight.short_notice():
         state.source_notice = preflight.short_notice()
         logs.add("warning", f"Startup notice: {preflight.short_notice()}")
-    
-    app = create_app(state, logs)
+
+    app = create_app(state, logs, recorder)
 
     stop_event = threading.Event()
-    tick_thread = threading.Thread(target=_run_tick_loop, args=(state, stop_event, auto_reconnect), daemon=True)
+    tick_thread = threading.Thread(target=_run_tick_loop, args=(state, stop_event, auto_reconnect, recorder), daemon=True)
     tick_thread.start()
 
     browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
