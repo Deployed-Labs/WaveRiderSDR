@@ -250,12 +250,48 @@ class WaterfallSettings:
 		return np.clip(out, self.min_db, self.max_db)
 
 
+# Default bandwidths in Hz per modulation mode
+MODE_BANDWIDTHS: dict[str, float] = {
+	"AM": 6_000.0,
+	"FM": 200_000.0,
+	"USB": 3_000.0,
+	"LSB": 3_000.0,
+	"CW": 500.0,
+	"None": 0.0,  # 0 means no filtering
+}
+
+
 class Demodulator:
 	def __init__(self) -> None:
 		self.squelch_db = -50.0
+		self.bandwidth_hz = 0.0  # 0 = no filtering (pass-through)
 
 	def set_squelch(self, value_db: float) -> None:
 		self.squelch_db = value_db
+
+	def set_bandwidth(self, bandwidth_hz: float) -> None:
+		"""Set the filter bandwidth in Hz. 0 disables filtering."""
+		self.bandwidth_hz = max(0.0, float(bandwidth_hz))
+
+	def apply_bandwidth_filter(self, samples: np.ndarray, sample_rate: float) -> np.ndarray:
+		"""Apply a rectangular band-pass filter in the frequency domain."""
+		if self.bandwidth_hz <= 0 or sample_rate <= 0 or len(samples) < 4:
+			return samples
+		# Only filter if bandwidth is narrower than Nyquist bandwidth
+		nyquist = sample_rate / 2.0
+		if self.bandwidth_hz >= sample_rate:
+			return samples
+		try:
+			spectrum = np.fft.fft(samples)
+			freqs = np.fft.fftfreq(len(samples), 1.0 / sample_rate)
+			mask = np.abs(freqs) <= min(self.bandwidth_hz / 2.0, nyquist)
+			spectrum[~mask] = 0
+			filtered = np.fft.ifft(spectrum)
+			if np.iscomplexobj(samples):
+				return filtered.astype(np.complex64)
+			return np.real(filtered).astype(np.float32)
+		except Exception:
+			return samples
 
 	def signal_strength_db(self, samples: np.ndarray) -> float:
 		if len(samples) == 0:
@@ -632,6 +668,7 @@ class AppState:
 
 		self.modulation_mode = "None"
 		self.morse_enabled = False
+		self.bandwidth_hz = 0.0  # 0 = no filtering
 		self.signal_strength_db = -120.0
 		self.signal_detected = False
 		self.active_source = "Simulated"
@@ -653,6 +690,7 @@ class AppState:
 		max_db: Optional[float] = None,
 		squelch_db: Optional[float] = None,
 		morse_enabled: Optional[bool] = None,
+		bandwidth_hz: Optional[float] = None,
 	) -> None:
 		if frequency_mhz is not None:
 			self.center_freq = max(0.0, float(frequency_mhz) * 1_000_000.0)
@@ -676,6 +714,9 @@ class AppState:
 			self.demodulator.set_squelch(float(squelch_db))
 		if morse_enabled is not None:
 			self.morse_enabled = bool(morse_enabled)
+		if bandwidth_hz is not None:
+			self.bandwidth_hz = max(0.0, float(bandwidth_hz))
+			self.demodulator.set_bandwidth(self.bandwidth_hz)
 
 		if self.waterfall_settings.min_db >= self.waterfall_settings.max_db:
 			self.waterfall_settings.max_db = self.waterfall_settings.min_db + 1.0
@@ -714,14 +755,17 @@ class AppState:
 			self.source_notice = None
 			samples = self.generator.generate_samples(self.fft_size)
 
-		self.signal_strength_db = self.demodulator.signal_strength_db(samples)
-		self.signal_detected = self.demodulator.detect_signal(samples)
+		# Apply bandwidth filter before processing
+		filtered_samples = self.demodulator.apply_bandwidth_filter(samples, self.sample_rate)
+
+		self.signal_strength_db = self.demodulator.signal_strength_db(filtered_samples)
+		self.signal_detected = self.demodulator.detect_signal(filtered_samples)
 
 		if self.morse_enabled and self.modulation_mode.lower() == "cw":
-			env = self.demodulator.demodulate_cw(samples)
+			env = self.demodulator.demodulate_cw(filtered_samples)
 			self.morse_decoder.process_samples(env)
 
-		fft_db = compute_fft_db(samples, self.fft_size)
+		fft_db = compute_fft_db(filtered_samples, self.fft_size)
 		processed = self.waterfall_settings.apply_processing(fft_db)
 		self.waveform_data = processed.astype(np.float32)
 		self.waterfall_data = np.roll(self.waterfall_data, 1, axis=0)
@@ -756,6 +800,7 @@ class AppState:
 			"meshtastic_devices": self.detector.detect_devices(),
 			"sdr_devices": self.sdr.detect_devices(),
 			"connected_sdr_id": connected_id,
+			"bandwidth_hz": self.bandwidth_hz,
 		}
 
 

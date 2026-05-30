@@ -255,6 +255,19 @@ def _validate_fft_size(size: Any) -> tuple[bool, str]:
         return False, "FFT size must be an integer"
 
 
+def _validate_bandwidth(bw: Any) -> tuple[bool, str]:
+    """Validate bandwidth is non-negative and within reasonable range."""
+    try:
+        b = float(bw)
+        if b < 0:
+            return False, "Bandwidth must be 0 or greater (0 = no filtering)"
+        if b > 10_000_000:
+            return False, "Bandwidth must not exceed 10 MHz"
+        return True, ""
+    except (TypeError, ValueError):
+        return False, "Bandwidth must be a number"
+
+
 def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder) -> Flask:
     app = Flask(__name__, template_folder="templates")
 
@@ -310,6 +323,13 @@ def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder) -> Fl
             if not valid:
                 logs.add("error", f"Config validation failed: {error}")
                 return jsonify({"ok": False, "error": error}), 400
+
+        # Validate bandwidth if provided
+        if "bandwidth_hz" in payload and payload["bandwidth_hz"] is not None:
+            valid, error = _validate_bandwidth(payload["bandwidth_hz"])
+            if not valid:
+                logs.add("error", f"Config validation failed: {error}")
+                return jsonify({"ok": False, "error": error}), 400
         
         try:
             with state.lock:
@@ -322,6 +342,7 @@ def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder) -> Fl
                     max_db=payload.get("max_db"),
                     squelch_db=payload.get("squelch_db"),
                     morse_enabled=payload.get("morse_enabled"),
+                    bandwidth_hz=payload.get("bandwidth_hz"),
                 )
             logs.add("debug", "Config updated")
             return jsonify({"ok": True})

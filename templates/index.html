@@ -400,6 +400,13 @@
               <option>CW</option>
             </select>
           </div>
+          <div class="control">
+            <label>Bandwidth <span id="bandwidthLabel" style="color:var(--accent); font-weight:600;">Off</span></label>
+            <input id="bandwidth" type="range" min="0" max="500000" step="500" value="0" style="width:120px;" />
+          </div>
+          <div class="control" style="align-self:flex-end;">
+            <button id="bwDefaultBtn" style="font-size:11px; padding:4px 8px;">Mode Default</button>
+          </div>
         </div>
 
         <div class="row" style="margin-top:12px;">
@@ -523,6 +530,9 @@
       sampleRate: document.getElementById("sampleRate"),
       fftSize: document.getElementById("fftSize"),
       modulation: document.getElementById("modulation"),
+      bandwidth: document.getElementById("bandwidth"),
+      bandwidthLabel: document.getElementById("bandwidthLabel"),
+      bwDefaultBtn: document.getElementById("bwDefaultBtn"),
       minDb: document.getElementById("minDb"),
       maxDb: document.getElementById("maxDb"),
       squelch: document.getElementById("squelch"),
@@ -826,6 +836,7 @@
           max_db: Number(controls.maxDb.value),
           squelch_db: Number(controls.squelch.value),
           morse_enabled: controls.morseEnabled.value === "true",
+          bandwidth_hz: Number(controls.bandwidth.value),
         }),
       });
       
@@ -851,6 +862,58 @@
       await api("/api/stop", { method: "POST" });
       addLog("info", "SDR stopped");
       await refreshStatus();
+    });
+
+    // Bandwidth Filter
+    const MODE_BW_DEFAULTS = { None: 0, AM: 6000, FM: 200000, USB: 3000, LSB: 3000, CW: 500 };
+
+    function formatBandwidth(hz) {
+      if (!hz || hz === 0) return "Off";
+      if (hz >= 1000000) return `${(hz / 1000000).toFixed(2)} MHz`;
+      if (hz >= 1000) return `${(hz / 1000).toFixed(1)} kHz`;
+      return `${hz} Hz`;
+    }
+
+    function updateBandwidthLabel() {
+      const val = Number(controls.bandwidth.value);
+      controls.bandwidthLabel.textContent = formatBandwidth(val);
+    }
+
+    controls.bandwidth.addEventListener("input", () => {
+      updateBandwidthLabel();
+      sendConfig();
+    });
+
+    controls.bwDefaultBtn.addEventListener("click", () => {
+      const mode = controls.modulation.value;
+      const defaultBw = MODE_BW_DEFAULTS[mode] ?? 0;
+      controls.bandwidth.value = defaultBw;
+      updateBandwidthLabel();
+      sendConfig();
+      addLog("info", `Bandwidth set to mode default: ${formatBandwidth(defaultBw)}`);
+    });
+
+    // Also update bandwidth range max on modulation change
+    controls.modulation.addEventListener("change", () => {
+      const mode = controls.modulation.value;
+      // Adjust slider max based on mode
+      if (mode === "FM") {
+        controls.bandwidth.max = 500000;
+        controls.bandwidth.step = 5000;
+      } else if (mode === "AM") {
+        controls.bandwidth.max = 50000;
+        controls.bandwidth.step = 500;
+      } else if (mode === "USB" || mode === "LSB") {
+        controls.bandwidth.max = 10000;
+        controls.bandwidth.step = 100;
+      } else if (mode === "CW") {
+        controls.bandwidth.max = 5000;
+        controls.bandwidth.step = 50;
+      } else {
+        controls.bandwidth.max = 500000;
+        controls.bandwidth.step = 500;
+      }
+      updateBandwidthLabel();
     });
 
     // Audio Recording
