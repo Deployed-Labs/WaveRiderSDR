@@ -1,15 +1,19 @@
 import unittest
+import tempfile
 
 from waverider_common import AppState, FrequencyScanner
-from waverider_web import AudioRecorder, IQRecorder, LogManager, SignalHistory, TCPControlServer, create_app
+from waverider_web import AudioRecorder, IQRecorder, LogManager, SDRAutoReconnect, SignalHistory, TCPControlServer, _run_tick_loop, create_app
+import threading
+import time
 
 
 class ApiContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.state = AppState()
         self.logs = LogManager(max_logs=100)
-        self.recorder = AudioRecorder(recording_dir="recordings_test")
-        self.iq_recorder = IQRecorder(recording_dir="recordings_test")
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.recorder = AudioRecorder(recording_dir=self._tmpdir.name)
+        self.iq_recorder = IQRecorder(recording_dir=self._tmpdir.name)
         self.signal_history = SignalHistory()
         self.scanner = FrequencyScanner()
         self.app = create_app(
@@ -21,6 +25,9 @@ class ApiContractTests(unittest.TestCase):
             self.scanner,
         )
         self.client = self.app.test_client()
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
 
     def test_status_endpoint_shape(self) -> None:
         response = self.client.get("/api/status")
@@ -216,6 +223,48 @@ class TcpControlDispatchTests(unittest.TestCase):
 
     def test_invalid_command_returns_error(self) -> None:
         self.assertEqual(self.tcp._dispatch("XYZ"), "RPRT -8")
+
+
+class ScannerIntegrationTests(unittest.TestCase):
+    def test_scanner_updates_center_frequency_in_tick_loop(self) -> None:
+        state = AppState()
+        logs = LogManager(max_logs=20)
+        tmp_audio = tempfile.TemporaryDirectory()
+        tmp_iq = tempfile.TemporaryDirectory()
+        recorder = AudioRecorder(recording_dir=tmp_audio.name)
+        iq_recorder = IQRecorder(recording_dir=tmp_iq.name)
+        signal_history = SignalHistory()
+        scanner = FrequencyScanner()
+        try:
+            with state.lock:
+                state.running = True
+                scanner.start(
+                    start_hz=100_000_000,
+                    stop_hz=101_000_000,
+                    step_hz=100_000,
+                    dwell_ms=40,
+                    pause_on_signal=False,
+                )
+
+            stop_event = threading.Event()
+            auto_reconnect = SDRAutoReconnect(logs)
+            t = threading.Thread(
+                target=_run_tick_loop,
+                args=(state, stop_event, auto_reconnect, recorder, iq_recorder, signal_history, scanner),
+                daemon=True,
+            )
+            t.start()
+
+            time.sleep(0.14)
+            stop_event.set()
+            t.join(timeout=1.0)
+
+            with state.lock:
+                self.assertGreater(state.center_freq, 100_000_000.0)
+                self.assertTrue(100_000_000.0 <= state.center_freq <= 101_000_000.0)
+        finally:
+            tmp_audio.cleanup()
+            tmp_iq.cleanup()
 
 
 if __name__ == "__main__":
