@@ -266,6 +266,9 @@ class SDRAutoReconnect:
             self.last_connected_device_id = None
             self.was_connected = False
             self.reconnect_attempts = 0
+
+
+class LogManager:
     """In-memory + file-based log manager with rotation."""
     def __init__(self, max_logs: int = 100, log_dir: str = "logs"):
         self.logs: deque[dict[str, str]] = deque(maxlen=max_logs)
@@ -645,6 +648,9 @@ class SignalHistory:
             "history": [[round(t - t0, 2), round(db, 1)] for t, db in points],
             "max_points": self.MAX_POINTS,
         }
+
+
+class TCPControlServer:
     """GQRX-compatible TCP remote control server (default port 7356).
 
     Supported commands (case-insensitive):

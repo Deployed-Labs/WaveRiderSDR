@@ -165,3 +165,37 @@ Python entrypoints are the runtime and packaging source of truth for this reposi
 - `POST /api/disconnect_sdr`: clears active SDR source
 - `GET /api/status`: includes source label, Meshtastic devices, SDR devices, and signal telemetry
 
+## Recording APIs
+
+- `POST /api/record/start`: starts WAV audio recording into `recordings/`
+- `POST /api/record/stop`: stops WAV recording and finalizes file
+- `GET /api/record/status`: returns recording state, duration, and estimated size
+- `POST /api/iq/start`: starts raw IQ recording (`.cf32`) with sample rate and center frequency metadata in filename
+- `POST /api/iq/stop`: stops IQ recording
+- `GET /api/iq/status`: returns IQ recording state and counters
+
+## Signal History API
+
+- `GET /api/signal_history`: returns rolling signal strength history for the UI sparkline
+	- Response shape: `{ "history": [[t_seconds, signal_db], ...], "max_points": 300 }`
+
+## Frequency Scanner APIs
+
+- `POST /api/scan/start`: starts scan mode
+	- Body: `{ "start_hz": 88000000, "stop_hz": 108000000, "step_hz": 100000, "dwell_ms": 200, "pause_on_signal": true }`
+- `POST /api/scan/stop`: stops scan mode
+- `GET /api/scan/status`: returns scanner state and current frequency
+
+## TCP Remote Control
+
+WaveRider exposes a local TCP control socket on `127.0.0.1:7356` using a GQRX-style command set.
+
+Supported commands:
+
+- `F` / `F <hz>`: get or set center frequency
+- `M` / `M <mode>`: get or set modulation (`AM`, `FM`, `USB`, `LSB`, `CW`, `NONE`)
+- `L SQUELCH` / `L SQUELCH <db>`: get or set squelch level
+- `P` / `P <ppm>`: get or set PPM correction
+- `R` or `STATUS`: return full JSON status
+- `Q` or `QUIT`: close the connection
+
