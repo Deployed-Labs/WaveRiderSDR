@@ -94,6 +94,10 @@ class WaveRiderTkGui:
         style.configure("PanelTitle.TLabel", background=self.colors["panel_alt"], foreground=self.colors["text"], font=("Segoe UI", 10, "bold"))
         style.configure("Body.TLabel", background=self.colors["panel_alt"], foreground=self.colors["text"], font=("Segoe UI", 9))
         style.configure("Muted.TLabel", background=self.colors["panel_alt"], foreground=self.colors["muted"], font=("Segoe UI", 9))
+        style.configure("GoodBadge.TLabel", background="#173a32", foreground="#b8fff3", font=("Segoe UI", 9, "bold"))
+        style.configure("WarnBadge.TLabel", background="#46321c", foreground="#ffd8a6", font=("Segoe UI", 9, "bold"))
+        style.configure("DangerBadge.TLabel", background="#4a2525", foreground="#ffd2d2", font=("Segoe UI", 9, "bold"))
+        style.configure("IdleBadge.TLabel", background=self.colors["panel_alt"], foreground=self.colors["muted"], font=("Segoe UI", 9, "bold"))
         style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"), padding=(12, 7))
         style.map(
             "Accent.TButton",
@@ -164,9 +168,12 @@ class WaveRiderTkGui:
         ttk.Button(preset_row, text="Waterfall Focus", command=lambda: self._apply_view_preset("waterfall")).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(preset_row, text="Balanced", command=lambda: self._apply_view_preset("balanced")).grid(row=0, column=3)
 
-        ttk.Button(toolbar, text="Apply", style="Accent.TButton", command=self._apply_config).grid(row=0, column=1, padx=(8, 8), sticky="e")
-        ttk.Button(toolbar, text="Start", style="Accent.TButton", command=self._start).grid(row=0, column=2, padx=(0, 8), sticky="e")
-        ttk.Button(toolbar, text="Stop", style="Accent.TButton", command=self._stop).grid(row=0, column=3, sticky="e")
+        self.toolbar_apply_btn = ttk.Button(toolbar, text="Apply", style="Accent.TButton", command=self._apply_config)
+        self.toolbar_apply_btn.grid(row=0, column=1, padx=(8, 8), sticky="e")
+        self.toolbar_start_btn = ttk.Button(toolbar, text="Start", style="Accent.TButton", command=self._start)
+        self.toolbar_start_btn.grid(row=0, column=2, padx=(0, 8), sticky="e")
+        self.toolbar_stop_btn = ttk.Button(toolbar, text="Stop", style="Accent.TButton", command=self._stop)
+        self.toolbar_stop_btn.grid(row=0, column=3, sticky="e")
 
         status_area = ttk.Frame(self.root, padding=(16, 0, 16, 8), style="App.TFrame")
         status_area.grid(row=2, column=0, sticky="ew")
@@ -184,6 +191,7 @@ class WaveRiderTkGui:
         badges.columnconfigure(1, weight=0)
         badges.columnconfigure(2, weight=0)
         badges.columnconfigure(3, weight=0)
+        badges.columnconfigure(4, weight=0)
 
         self.status_var = tk.StringVar(value="Stopped")
         ttk.Label(badges, textvariable=self.status_var, style="Subtle.TLabel").grid(row=0, column=0, sticky="w")
@@ -194,12 +202,15 @@ class WaveRiderTkGui:
         self.signal_badge.grid(row=0, column=2, sticky="e", padx=(8, 0))
         self.rate_badge = ttk.Label(badges, text="2.4 MS/s", style="PanelTitle.TLabel")
         self.rate_badge.grid(row=0, column=3, sticky="e", padx=(8, 0))
+        self.squelch_badge = ttk.Label(badges, text="SQ -50 dB", style="IdleBadge.TLabel")
+        self.squelch_badge.grid(row=0, column=4, sticky="e", padx=(8, 0))
 
         self.device_drawer_button = ttk.Button(statusbar, text="Device Status ▸", command=self._toggle_device_drawer)
         self.device_drawer_button.grid(row=0, column=1, sticky="e", padx=(12, 0))
 
         self.notice_var = tk.StringVar(value=self.startup_notice)
-        ttk.Label(status_area, textvariable=self.notice_var, style="Subtle.TLabel", foreground=self.colors["warning"]).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.notice_label = ttk.Label(status_area, textvariable=self.notice_var, style="Subtle.TLabel", foreground=self.colors["warning"])
+        self.notice_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         drawer = ttk.Frame(status_area, padding=(0, 10, 0, 0), style="App.TFrame")
         drawer.grid(row=2, column=0, sticky="ew")
@@ -379,6 +390,22 @@ class WaveRiderTkGui:
         ttk.Label(adv_tab, text="Auto Range", style="Body.TLabel").grid(row=2, column=1, sticky="w", padx=12, pady=(0, 0))
         ttk.Button(adv_tab, text="Auto", command=self._auto_range_db).grid(row=3, column=1, sticky="ew", padx=12, pady=(2, 10))
 
+        ttk.Label(adv_tab, text="Bandwidth (Hz)", style="Body.TLabel").grid(row=4, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.bandwidth_var = tk.StringVar(value="0")
+        ttk.Entry(adv_tab, textvariable=self.bandwidth_var).grid(row=5, column=0, sticky="ew", padx=12, pady=(2, 10))
+
+        ttk.Label(adv_tab, text="PPM Correction", style="Body.TLabel").grid(row=4, column=1, sticky="w", padx=12, pady=(0, 0))
+        self.ppm_var = tk.StringVar(value="0")
+        ttk.Entry(adv_tab, textvariable=self.ppm_var).grid(row=5, column=1, sticky="ew", padx=12, pady=(2, 10))
+
+        ttk.Label(adv_tab, text="Noise Blanker", style="Body.TLabel").grid(row=6, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.noise_blanker_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(adv_tab, text="Enable impulse blanking", variable=self.noise_blanker_var).grid(row=7, column=0, sticky="w", padx=12, pady=(2, 12))
+
+        ttk.Label(adv_tab, text="NB Threshold", style="Body.TLabel").grid(row=6, column=1, sticky="w", padx=12, pady=(0, 0))
+        self.nb_threshold_var = tk.StringVar(value="3.0")
+        ttk.Entry(adv_tab, textvariable=self.nb_threshold_var).grid(row=7, column=1, sticky="ew", padx=12, pady=(2, 12))
+
         # Signal meter (at bottom of all tabs)
         meter_frame = ttk.Frame(controls_card, style="Card.TFrame")
         meter_frame.grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=(8, 0))
@@ -398,9 +425,12 @@ class WaveRiderTkGui:
         button_row = ttk.Frame(controls_card, style="Card.TFrame")
         button_row.grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(8, 0))
         button_row.columnconfigure((0, 1, 2), weight=1)
-        ttk.Button(button_row, text="Apply", style="Accent.TButton", command=self._apply_config).grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        ttk.Button(button_row, text="Start", style="Accent.TButton", command=self._start).grid(row=0, column=1, sticky="ew", padx=(0, 8))
-        ttk.Button(button_row, text="Stop", style="Accent.TButton", command=self._stop).grid(row=0, column=2, sticky="ew")
+        self.panel_apply_btn = ttk.Button(button_row, text="Apply", style="Accent.TButton", command=self._apply_config)
+        self.panel_apply_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.panel_start_btn = ttk.Button(button_row, text="Start", style="Accent.TButton", command=self._start)
+        self.panel_start_btn.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self.panel_stop_btn = ttk.Button(button_row, text="Stop", style="Accent.TButton", command=self._stop)
+        self.panel_stop_btn.grid(row=0, column=2, sticky="ew")
 
         visuals_card.columnconfigure(0, weight=1)
         visuals_card.rowconfigure(1, weight=1)
@@ -847,10 +877,12 @@ class WaveRiderTkGui:
     def _start(self) -> None:
         with self.state.lock:
             self.state.start()
+        self.notice_var.set("SDR started.")
 
     def _stop(self) -> None:
         with self.state.lock:
             self.state.stop()
+        self.notice_var.set("SDR stopped.")
 
     def _apply_config(self) -> None:
         try:
@@ -860,6 +892,9 @@ class WaveRiderTkGui:
             squelch = float(self.squelch_var.get())
             min_db = float(self.min_db_var.get())
             max_db = float(self.max_db_var.get())
+            bandwidth_hz = float(self.bandwidth_var.get())
+            ppm_correction = float(self.ppm_var.get())
+            nb_threshold = float(self.nb_threshold_var.get())
         except ValueError:
             self.notice_var.set("Invalid numeric input in controls.")
             return
@@ -873,8 +908,12 @@ class WaveRiderTkGui:
                 squelch_db=squelch,
                 min_db=min_db,
                 max_db=max_db,
+                bandwidth_hz=bandwidth_hz,
+                noise_blanker=self.noise_blanker_var.get(),
+                noise_blanker_threshold=nb_threshold,
+                ppm_correction=ppm_correction,
             )
-        self.notice_var.set("")
+        self.notice_var.set("Configuration updated.")
 
     def _schedule_update(self) -> None:
         self._update_frame()
@@ -903,16 +942,56 @@ class WaveRiderTkGui:
             self._draw_waterfall(waveform, min_db, max_db)
 
         self.status_var.set(f"{'Running' if status['running'] else 'Stopped'}")
-        self.notice_var.set(str(status.get("source_notice") or ""))
+        source_notice = str(status.get("source_notice") or "")
+        if source_notice:
+            self.notice_var.set(source_notice)
 
         self.mode_badge.configure(text=f"MODE: {str(status.get('modulation_mode') or 'NONE').upper()}")
         self.source_badge.configure(text=str(status.get("source") or "SIMULATED").upper())
         self.signal_badge.configure(text=f"{status['signal_strength_db']:.1f} dB")
+        bw_value = status.get("bandwidth_hz")
+        if isinstance(bw_value, (int, float)):
+            self.bandwidth_var.set(f"{float(bw_value):.0f}")
+        ppm_value = status.get("ppm_correction")
+        if isinstance(ppm_value, (int, float)):
+            self.ppm_var.set(f"{float(ppm_value):.0f}")
+        nb_enabled = bool(status.get("noise_blanker"))
+        self.noise_blanker_var.set(nb_enabled)
+        nb_thresh = status.get("noise_blanker_threshold")
+        if isinstance(nb_thresh, (int, float)):
+            self.nb_threshold_var.set(f"{float(nb_thresh):.1f}")
         sample_rate_value = status.get("sample_rate")
         sample_rate_hz = sample_rate_value if isinstance(sample_rate_value, (int, float)) else 0.0
         self.rate_badge.configure(text=f"{sample_rate_hz / 1_000_000.0:.1f} MS/s")
         signal_value = status.get("signal_strength_db")
         signal_db = signal_value if isinstance(signal_value, (int, float)) else -120.0
+        signal_detected = bool(status.get("signal_detected"))
+        squelch_value = status.get("squelch_db")
+        squelch_db = squelch_value if isinstance(squelch_value, (int, float)) else -50.0
+        self.squelch_badge.configure(text=f"SQ {squelch_db:.0f} dB")
+        self.squelch_badge.configure(style="GoodBadge.TLabel" if signal_detected else "IdleBadge.TLabel")
+
+        running = bool(status.get("running"))
+        if running:
+            self.mode_badge.configure(style="GoodBadge.TLabel")
+            self.toolbar_start_btn.state(["disabled"])
+            self.panel_start_btn.state(["disabled"])
+            self.toolbar_stop_btn.state(["!disabled"])
+            self.panel_stop_btn.state(["!disabled"])
+        else:
+            self.mode_badge.configure(style="IdleBadge.TLabel")
+            self.toolbar_start_btn.state(["!disabled"])
+            self.panel_start_btn.state(["!disabled"])
+            self.toolbar_stop_btn.state(["disabled"])
+            self.panel_stop_btn.state(["disabled"])
+
+        if signal_db >= -40:
+            self.signal_badge.configure(style="DangerBadge.TLabel")
+        elif signal_db >= -70:
+            self.signal_badge.configure(style="WarnBadge.TLabel")
+        else:
+            self.signal_badge.configure(style="GoodBadge.TLabel")
+
         self._draw_meter(signal_db)
         self._update_device_drawer(status)
 
