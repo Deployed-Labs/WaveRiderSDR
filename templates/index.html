@@ -125,7 +125,7 @@
     canvas {
       width: 100%;
       display: block;
-      background: #05090f;
+      background: var(--bg);
       border-radius: 8px;
       border: 1px solid var(--line);
     }
@@ -288,11 +288,7 @@
       font-family: "Courier New", monospace;
       font-size: 0.78rem;
       padding: 10px;
-      background: #05090f;
-    }
-
-    :root.light-mode .log-messages {
-      background: #fafafa;
+      background: var(--panel);
     }
 
     .log-entry {
@@ -502,6 +498,19 @@
     const waveCtx = waveformCanvas.getContext("2d");
     const wfCtx = waterfallCanvas.getContext("2d");
 
+    // Get CSS variables for current theme
+    function getThemeColors() {
+      const root = document.documentElement;
+      const style = getComputedStyle(root);
+      return {
+        bg: style.getPropertyValue("--bg").trim() || "#0c1116",
+        panel: style.getPropertyValue("--panel").trim() || "#16202b",
+        line: style.getPropertyValue("--line").trim() || "#2f4256",
+        accent: style.getPropertyValue("--accent").trim() || "#2cc7b7",
+        text: style.getPropertyValue("--text").trim() || "#dfe7ef"
+      };
+    }
+
     const controls = {
       frequency: document.getElementById("frequency"),
       sampleRate: document.getElementById("sampleRate"),
@@ -599,24 +608,29 @@
     addLog("info", "WaveRider SDR initialized");
 
     // ========== Connection Info Display ==========
+    let lastConnectedId = null;
+    
     function updateConnectionInfo(status) {
       const sdrName = status.connected_sdr_id ? `Connected to: ${status.connected_sdr_id}` : "No SDR connected (using simulation)";
       const isConnected = !!status.connected_sdr_id;
       
       controls.connectionInfo.innerHTML = `
-        <strong>${isConnected ? "✓ " : "○ "}Device Status:</strong> ${sdrName}
+        <strong>${isConnected ? "✓ " : "⚠ "}Device Status:</strong> ${sdrName}
         <br><strong>Sample Rate:</strong> ${(status.sample_rate / 1e6).toFixed(2)} MHz | 
         <strong>Center Freq:</strong> ${(status.center_freq / 1e6).toFixed(3)} MHz
       `;
       controls.connectionInfo.classList.toggle("connected", isConnected);
       
-      if (isConnected !== controls.connectionInfo.classList.contains("connected")) {
-        controls.connectionInfo.style.display = isConnected ? "block" : "none";
-        if (isConnected) {
-          addLog("info", `Connected to SDR: ${status.connected_sdr_id}`);
-        }
+      // Track connection changes
+      if (isConnected && status.connected_sdr_id !== lastConnectedId) {
+        lastConnectedId = status.connected_sdr_id;
+        controls.connectionInfo.style.display = "block";
+      } else if (!isConnected && lastConnectedId) {
+        lastConnectedId = null;
+        controls.connectionInfo.style.display = "block";
+      } else if (isConnected) {
+        controls.connectionInfo.style.display = "block";
       }
-      if (isConnected) controls.connectionInfo.style.display = "block";
     }
 
     // ========== Center Tuner ==========
@@ -634,12 +648,25 @@
     });
 
     async function api(path, opts = {}) {
-      const res = await fetch(path, {
-        headers: { "Content-Type": "application/json" },
-        ...opts,
-      });
-      const text = await res.text();
-      try { return JSON.parse(text); } catch { return text; }
+      try {
+        const res = await fetch(path, {
+          headers: { "Content-Type": "application/json" },
+          ...opts,
+        });
+        const text = await res.text();
+        try { 
+          const json = JSON.parse(text);
+          if (!res.ok && json.error) {
+            addLog("error", `API error: ${json.error}`);
+          }
+          return json;
+        } catch { 
+          return text; 
+        }
+      } catch (err) {
+        addLog("error", `Network error: ${err.message}`);
+        throw err;
+      }
     }
 
     function dbToY(v, minDb, maxDb, h) {
@@ -648,11 +675,12 @@
     }
 
     function drawWaveform(data, minDb, maxDb) {
+      const colors = getThemeColors();
       const w = waveformCanvas.width;
       const h = waveformCanvas.height;
       waveCtx.clearRect(0, 0, w, h);
 
-      waveCtx.strokeStyle = "var(--line)";
+      waveCtx.strokeStyle = colors.line;
       waveCtx.lineWidth = 1;
       for (let i = 1; i <= 4; i++) {
         const y = (h * i) / 5;
@@ -666,7 +694,7 @@
         return;
       }
 
-      waveCtx.strokeStyle = "var(--accent)";
+      waveCtx.strokeStyle = colors.accent;
       waveCtx.lineWidth = 2;
       waveCtx.beginPath();
       for (let i = 0; i < data.length; i++) {
@@ -690,7 +718,13 @@
     }
 
     function drawWaterfall(matrix, minDb, maxDb) {
+      const colors = getThemeColors();
       if (!Array.isArray(matrix) || !matrix.length || !Array.isArray(matrix[0])) {
+        // Clear with background color
+        const w = waterfallCanvas.width;
+        const h = waterfallCanvas.height;
+        wfCtx.fillStyle = colors.bg;
+        wfCtx.fillRect(0, 0, w, h);
         return;
       }
 
@@ -773,8 +807,9 @@
     }
 
     async function sendConfig() {
-      await api("/api/config", {
+      const response = await fetch("/api/config", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           frequency_mhz: Number(controls.frequency.value),
           sample_rate_hz: Number(controls.sampleRate.value),
@@ -786,6 +821,11 @@
           morse_enabled: controls.morseEnabled.value === "true",
         }),
       });
+      
+      const result = await response.json();
+      if (!result.ok) {
+        addLog("error", `Config error: ${result.error || "Unknown error"}`);
+      }
     }
 
     async function loadBands() {

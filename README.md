@@ -20,13 +20,20 @@ launch_gui.bat
 ## What Is Implemented
 
 - Universal Python launcher with mode selection
-- Web SDR interface served from Flask
+- Web SDR interface served from Flask with modern UI
+- **Dark mode** toggle for comfortable night operation
+- **Band preset search** with real-time filtering
 - Simulated IQ signal generation
 - FFT + waterfall + waveform processing
 - CW envelope decoding with Morse text extraction
-- Band presets API and UI
+- Band presets API and UI with center frequency tuning
 - Meshtastic USB detection via serial ports (VID/product matching)
 - SDR management endpoints for scan/connect/disconnect
+- **Connection status indicator** showing active SDR device
+- **Log message display** with filtering (debug, info, warning, error)
+- **Input validation** with error messages for invalid settings
+- **Server-side logging** to persistent files with automatic rotation
+- **Sample rate presets** optimized for common SDR hardware
 
 ## Project Layout
 
@@ -37,7 +44,21 @@ launch_gui.bat
 - `waverider_common.py`: shared runtime state, DSP, bands, Morse decoder
 - `launch.bat`: Windows launcher (passes arguments to `run.py`)
 - `launch_gui.bat`: Windows native GUI launcher (Tkinter)
-- `templates/index.html`: web dashboard
+- `templates/index.html`: web dashboard with modern UI
+- `logs/`: server-side log files (auto-created on first run)
+
+## Web Interface Features
+
+The modern web dashboard includes:
+
+- **Theme Toggle**: Dark mode (default) or light mode, saved to browser
+- **Band Search**: Real-time search through 40+ frequency bands
+- **Center Tuner**: One-click button to jump to selected band's center frequency
+- **Connection Status**: Live display of active SDR device, sample rate, and frequency
+- **Log Viewer**: Filterable message display (all, debug, info, warning, error)
+- **Input Validation**: Errors displayed immediately for invalid frequency/sample rate/FFT size
+- **Sample Rate Presets**: 2.4M, 2.048M, 1.2M, 1.024M, 960k, 500k
+- **Auto-rotating Logs**: Server writes to persistent log files with automatic rotation at 5MB
 
 ## Download
 
