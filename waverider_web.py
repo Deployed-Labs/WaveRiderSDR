@@ -6,11 +6,36 @@ import argparse
 import threading
 import time
 import webbrowser
+from collections import deque
+from datetime import datetime
 from typing import Any, cast
 
 from flask import Flask, jsonify, render_template, request
 
 from waverider_common import AppState, bands_as_dicts, run_startup_preflight
+
+
+class LogManager:
+    """Simple in-memory log manager."""
+    def __init__(self, max_logs: int = 100):
+        self.logs: deque[dict[str, str]] = deque(maxlen=max_logs)
+        self.lock = threading.Lock()
+    
+    def add(self, level: str, message: str) -> None:
+        with self.lock:
+            self.logs.appendleft({
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "level": level.lower(),
+                "message": message
+            })
+    
+    def get_all(self) -> list[dict[str, str]]:
+        with self.lock:
+            return list(self.logs)
+    
+    def clear(self) -> None:
+        with self.lock:
+            self.logs.clear()
 
 
 def _json_payload() -> dict[str, Any]:
@@ -20,7 +45,7 @@ def _json_payload() -> dict[str, Any]:
     return {}
 
 
-def create_app(state: AppState) -> Flask:
+def create_app(state: AppState, logs: LogManager) -> Flask:
     app = Flask(__name__, template_folder="templates")
 
     @app.get("/")
@@ -41,12 +66,14 @@ def create_app(state: AppState) -> Flask:
     def api_start():
         with state.lock:
             state.start()
+        logs.add("info", "SDR started")
         return jsonify({"ok": True})
 
     @app.post("/api/stop")
     def api_stop():
         with state.lock:
             state.stop()
+        logs.add("info", "SDR stopped")
         return jsonify({"ok": True})
 
     @app.post("/api/config")
@@ -76,6 +103,7 @@ def create_app(state: AppState) -> Flask:
         with state.lock:
             ok = state.set_band(band_name)
             status = state.get_status()
+        logs.add("info" if ok else "warning", f"Set band: {band_name}")
         code = 200 if ok else 404
         return jsonify({"ok": ok, "status": status}), code
 
@@ -94,6 +122,7 @@ def create_app(state: AppState) -> Flask:
         device_id = str(payload.get("device_id", ""))
         with state.lock:
             ok = state.sdr.connect(device_id)
+        logs.add("info" if ok else "error", f"Connect SDR: {device_id}")
         code = 200 if ok else 404
         return jsonify({"ok": ok}), code
 
@@ -101,6 +130,16 @@ def create_app(state: AppState) -> Flask:
     def api_disconnect_sdr():
         with state.lock:
             state.sdr.disconnect()
+        logs.add("info", "SDR disconnected")
+        return jsonify({"ok": True})
+
+    @app.get("/api/logs")
+    def api_logs():
+        return jsonify(logs.get_all())
+
+    @app.post("/api/logs/clear")
+    def api_logs_clear():
+        logs.clear()
         return jsonify({"ok": True})
 
     @app.get("/api/diagnostics")
@@ -130,10 +169,15 @@ def run_web(host: str = "0.0.0.0", port: int = 5000, open_browser: bool = False)
     for warning in preflight.warnings:
         print(f"[startup] {warning}")
 
+    logs = LogManager()
+    logs.add("info", "WaveRider SDR initialized")
+    
     state = AppState()
     if preflight.short_notice():
         state.source_notice = preflight.short_notice()
-    app = create_app(state)
+        logs.add("warning", f"Startup notice: {preflight.short_notice()}")
+    
+    app = create_app(state, logs)
 
     stop_event = threading.Event()
     tick_thread = threading.Thread(target=_run_tick_loop, args=(state, stop_event), daemon=True)
@@ -147,6 +191,7 @@ def run_web(host: str = "0.0.0.0", port: int = 5000, open_browser: bool = False)
 
     try:
         print(f"WaveRider SDR Python web server running at {url}")
+        logs.add("info", f"Server running at {url}")
         app.run(host=host, port=port, threaded=True, use_reloader=False)
         return 0
     finally:

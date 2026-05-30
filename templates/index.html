@@ -16,6 +16,17 @@
       --line: #2f4256;
     }
 
+    :root.light-mode {
+      --bg: #f5f5f5;
+      --panel: #ffffff;
+      --panel-2: #f9f9f9;
+      --text: #1a1a1a;
+      --muted: #666666;
+      --accent: #00a89d;
+      --danger: #d84e44;
+      --line: #dddddd;
+    }
+
     * { box-sizing: border-box; }
 
     body {
@@ -24,6 +35,11 @@
       background: radial-gradient(circle at top right, #1a2938 0%, var(--bg) 55%);
       color: var(--text);
       min-height: 100vh;
+      transition: background-color 200ms ease, color 200ms ease;
+    }
+
+    :root.light-mode body {
+      background: radial-gradient(circle at top right, #e0e0e0 0%, var(--bg) 55%);
     }
 
     .layout {
@@ -130,10 +146,202 @@
       color: #ffb570;
     }
 
+    .theme-toggle {
+      background: linear-gradient(135deg, #2a3f5f, #1a2f4f);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 12px;
+      color: var(--accent);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.82rem;
+      transition: all 120ms ease;
+    }
+
+    .theme-toggle:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(44, 199, 183, 0.2);
+    }
+
+    .theme-toggle.active {
+      background: linear-gradient(135deg, var(--accent), #1aa88f);
+      color: #0c1116;
+    }
+
+    :root.light-mode .theme-toggle.active {
+      background: linear-gradient(135deg, var(--accent), #00a89d);
+      color: white;
+    }
+
+    .search-container {
+      position: relative;
+    }
+
+    .band-search {
+      width: 100%;
+    }
+
+    .band-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      max-height: 250px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .band-dropdown.show {
+      display: block;
+    }
+
+    .band-option {
+      padding: 10px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--line);
+      color: var(--text);
+      font-size: 0.88rem;
+    }
+
+    .band-option:hover {
+      background: var(--panel-2);
+    }
+
+    .band-option.selected {
+      background: var(--accent);
+      color: var(--bg);
+    }
+
+    .center-freq-btn {
+      background: linear-gradient(135deg, #3a7f7f, #2a6f6f);
+      border: 1px solid var(--accent);
+    }
+
+    .center-freq-btn:hover {
+      box-shadow: inset 0 0 8px rgba(44, 199, 183, 0.3);
+    }
+
+    .connection-info {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .connection-info.connected {
+      border-color: var(--accent);
+      background: linear-gradient(135deg, rgba(44, 199, 183, 0.05), rgba(44, 199, 183, 0.02));
+    }
+
+    .connection-info strong {
+      color: var(--accent);
+    }
+
+    .log-panel {
+      background: #05090f;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    :root.light-mode .log-panel {
+      background: #fafafa;
+    }
+
+    .log-header {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .log-filter {
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.78rem;
+      flex: 0 1 auto;
+    }
+
+    .log-filter.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+
+    .log-messages {
+      height: 200px;
+      overflow-y: auto;
+      font-family: "Courier New", monospace;
+      font-size: 0.78rem;
+      padding: 10px;
+      background: #05090f;
+    }
+
+    :root.light-mode .log-messages {
+      background: #fafafa;
+    }
+
+    .log-entry {
+      margin-bottom: 4px;
+      padding: 4px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+    }
+
+    .log-entry.debug {
+      border-left-color: #6b7280;
+      color: #6b7280;
+    }
+
+    .log-entry.info {
+      border-left-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .log-entry.warning {
+      border-left-color: #ffb570;
+      color: #ffb570;
+    }
+
+    .log-entry.error {
+      border-left-color: var(--danger);
+      color: var(--danger);
+    }
+
+    .log-clear-btn {
+      padding: 6px 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--text);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      margin-left: auto;
+    }
+
+    .log-clear-btn:hover {
+      background: var(--panel-2);
+    }
+
     @media (max-width: 760px) {
       .layout { margin: 12px auto; }
       #waveform { height: 150px; }
       #waterfall { height: 250px; }
+      .log-messages { height: 150px; }
     }
   </style>
 </head>
@@ -142,24 +350,36 @@
     <section class="card">
       <div class="card-header">
         <h2>WaveRider SDR (Python Web)</h2>
-        <div id="runState">Stopped</div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <div id="runState">Stopped</div>
+          <button id="themeToggle" class="theme-toggle">🌙 Dark</button>
+        </div>
+      </div>
+      <div class="pane" id="connectionInfo" style="margin-bottom: 12px; display: none;">
       </div>
       <div class="pane">
         <div class="row">
           <div class="control">
-            <label>Band</label>
-            <select id="bandSelect"></select>
+            <label>Band (Search)</label>
+            <div class="search-container">
+              <input id="bandSearch" type="text" placeholder="Search bands..." class="band-search" />
+              <div id="bandDropdown" class="band-dropdown"></div>
+            </div>
           </div>
           <div class="control">
             <label>Center Frequency (MHz)</label>
             <input id="frequency" type="number" step="0.1" value="100" />
           </div>
+          <div class="control"><button id="centerFreqBtn" class="center-freq-btn">📍 Center</button></div>
           <div class="control">
             <label>Sample Rate (Hz)</label>
             <select id="sampleRate">
-              <option value="2400000">2400000</option>
-              <option value="2048000">2048000</option>
-              <option value="1024000">1024000</option>
+              <option value="2400000">2.4M (RTL-SDR)</option>
+              <option value="2048000">2.048M</option>
+              <option value="1200000">1.2M</option>
+              <option value="1024000">1.024M</option>
+              <option value="960000">960k</option>
+              <option value="500000">500k</option>
             </select>
           </div>
           <div class="control">
@@ -235,9 +455,48 @@
         <span>Meshtastic: none</span>
       </div>
     </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h2>Log Messages</h2>
+      </div>
+      <div class="log-header">
+        <button class="log-filter active" data-level="*">All</button>
+        <button class="log-filter" data-level="debug">Debug</button>
+        <button class="log-filter" data-level="info">Info</button>
+        <button class="log-filter" data-level="warning">Warning</button>
+        <button class="log-filter" data-level="error">Error</button>
+        <button class="log-clear-btn" id="logClearBtn">Clear</button>
+      </div>
+      <div class="log-messages" id="logMessages"></div>
+    </section>
   </main>
 
   <script>
+    // ========== Theme Management ==========
+    const themeToggle = document.getElementById("themeToggle");
+    const html = document.documentElement;
+    const savedTheme = localStorage.getItem("theme") || "dark";
+    
+    function setTheme(theme) {
+      if (theme === "light") {
+        html.classList.add("light-mode");
+        themeToggle.textContent = "☀️ Light";
+        localStorage.setItem("theme", "light");
+      } else {
+        html.classList.remove("light-mode");
+        themeToggle.textContent = "🌙 Dark";
+        localStorage.setItem("theme", "dark");
+      }
+    }
+    
+    setTheme(savedTheme);
+    themeToggle.addEventListener("click", () => {
+      const isLight = html.classList.contains("light-mode");
+      setTheme(isLight ? "dark" : "light");
+    });
+
+    // ========== Canvas & Controls ==========
     const waveformCanvas = document.getElementById("waveform");
     const waterfallCanvas = document.getElementById("waterfall");
     const waveCtx = waveformCanvas.getContext("2d");
@@ -252,14 +511,127 @@
       maxDb: document.getElementById("maxDb"),
       squelch: document.getElementById("squelch"),
       morseEnabled: document.getElementById("morseEnabled"),
-      bandSelect: document.getElementById("bandSelect"),
+      bandSearch: document.getElementById("bandSearch"),
+      bandDropdown: document.getElementById("bandDropdown"),
       sdrDeviceSelect: document.getElementById("sdrDeviceSelect"),
       scanSdrBtn: document.getElementById("scanSdrBtn"),
       connectSdrBtn: document.getElementById("connectSdrBtn"),
       disconnectSdrBtn: document.getElementById("disconnectSdrBtn"),
+      centerFreqBtn: document.getElementById("centerFreqBtn"),
       runState: document.getElementById("runState"),
-      statusText: document.getElementById("statusText")
+      statusText: document.getElementById("statusText"),
+      connectionInfo: document.getElementById("connectionInfo"),
+      logMessages: document.getElementById("logMessages"),
+      logClearBtn: document.getElementById("logClearBtn")
     };
+
+    // ========== Band Management ==========
+    let allBands = [];
+    
+    function showBandDropdown(search = "") {
+      const filtered = allBands.filter(b => 
+        (b.name + " " + b.mode).toLowerCase().includes(search.toLowerCase())
+      );
+      
+      controls.bandDropdown.innerHTML = filtered
+        .map(b => `<div class="band-option" data-band="${b.name}">${b.name} (${b.mode}) - ${(b.start_hz/1e6).toFixed(1)}-${(b.end_hz/1e6).toFixed(1)} MHz</div>`)
+        .join("");
+      
+      controls.bandDropdown.classList.add("show");
+      
+      document.querySelectorAll(".band-option").forEach(opt => {
+        opt.addEventListener("click", async () => {
+          controls.bandSearch.value = opt.getAttribute("data-band");
+          controls.bandDropdown.classList.remove("show");
+          await api("/api/set_band", {
+            method: "POST",
+            body: JSON.stringify({ band: opt.getAttribute("data-band") }),
+          });
+          await refreshStatus();
+        });
+      });
+    }
+    
+    controls.bandSearch.addEventListener("input", (e) => {
+      showBandDropdown(e.target.value);
+    });
+    
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".search-container")) {
+        controls.bandDropdown.classList.remove("show");
+      }
+    });
+
+    // ========== Log System ==========
+    let logs = [];
+    let logFilter = "*";
+    
+    function addLog(level, message) {
+      const timestamp = new Date().toLocaleTimeString();
+      logs.unshift({ level, message, timestamp });
+      if (logs.length > 100) logs.pop();
+      updateLogDisplay();
+    }
+    
+    function updateLogDisplay() {
+      const filtered = logFilter === "*" ? logs : logs.filter(l => l.level === logFilter);
+      controls.logMessages.innerHTML = filtered
+        .map(l => `<div class="log-entry ${l.level}">[${l.timestamp}] ${l.level.toUpperCase()}: ${l.message}</div>`)
+        .join("");
+      controls.logMessages.scrollTop = 0;
+    }
+    
+    document.querySelectorAll(".log-filter").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        document.querySelectorAll(".log-filter").forEach(b => b.classList.remove("active"));
+        e.target.classList.add("active");
+        logFilter = e.target.getAttribute("data-level");
+        updateLogDisplay();
+      });
+    });
+    
+    controls.logClearBtn.addEventListener("click", () => {
+      logs = [];
+      updateLogDisplay();
+    });
+    
+    // Add initial info log
+    addLog("info", "WaveRider SDR initialized");
+
+    // ========== Connection Info Display ==========
+    function updateConnectionInfo(status) {
+      const sdrName = status.connected_sdr_id ? `Connected to: ${status.connected_sdr_id}` : "No SDR connected (using simulation)";
+      const isConnected = !!status.connected_sdr_id;
+      
+      controls.connectionInfo.innerHTML = `
+        <strong>${isConnected ? "✓ " : "○ "}Device Status:</strong> ${sdrName}
+        <br><strong>Sample Rate:</strong> ${(status.sample_rate / 1e6).toFixed(2)} MHz | 
+        <strong>Center Freq:</strong> ${(status.center_freq / 1e6).toFixed(3)} MHz
+      `;
+      controls.connectionInfo.classList.toggle("connected", isConnected);
+      
+      if (isConnected !== controls.connectionInfo.classList.contains("connected")) {
+        controls.connectionInfo.style.display = isConnected ? "block" : "none";
+        if (isConnected) {
+          addLog("info", `Connected to SDR: ${status.connected_sdr_id}`);
+        }
+      }
+      if (isConnected) controls.connectionInfo.style.display = "block";
+    }
+
+    // ========== Center Tuner ==========
+    controls.centerFreqBtn.addEventListener("click", () => {
+      const bandName = controls.bandSearch.value;
+      const selectedBand = allBands.find(b => b.name === bandName);
+      if (selectedBand) {
+        const centerMhz = selectedBand.center_hz / 1e6;
+        controls.frequency.value = centerMhz.toFixed(3);
+        addLog("info", `Centered on ${bandName}: ${centerMhz.toFixed(3)} MHz`);
+        sendConfig();
+      } else {
+        addLog("warning", "Please select a band first");
+      }
+    });
 
     async function api(path, opts = {}) {
       const res = await fetch(path, {
@@ -280,7 +652,7 @@
       const h = waveformCanvas.height;
       waveCtx.clearRect(0, 0, w, h);
 
-      waveCtx.strokeStyle = "#2f4256";
+      waveCtx.strokeStyle = "var(--line)";
       waveCtx.lineWidth = 1;
       for (let i = 1; i <= 4; i++) {
         const y = (h * i) / 5;
@@ -294,7 +666,7 @@
         return;
       }
 
-      waveCtx.strokeStyle = "#2cc7b7";
+      waveCtx.strokeStyle = "var(--accent)";
       waveCtx.lineWidth = 2;
       waveCtx.beginPath();
       for (let i = 0; i < data.length; i++) {
@@ -365,6 +737,8 @@
         `<span>Meshtastic: ${meshtasticText}</span>` +
         `${s.source_notice ? `<span class="status-warning">${s.source_notice}</span>` : ""}`;
 
+      updateConnectionInfo(s);
+
       if (Array.isArray(s.sdr_devices)) {
         const existing = new Set(Array.from(controls.sdrDeviceSelect.options).map((o) => o.value));
         if (existing.size === 0 || existing.size !== s.sdr_devices.length + 1) {
@@ -416,34 +790,34 @@
 
     async function loadBands() {
       const bands = await api("/api/bands");
-      controls.bandSelect.innerHTML = `<option value="">-- Select Band --</option>`;
-      for (const b of bands) {
-        const opt = document.createElement("option");
-        opt.value = b.name;
-        opt.textContent = `${b.name} (${b.mode})`;
-        controls.bandSelect.appendChild(opt);
-      }
+      allBands = bands;
+      addLog("info", `Loaded ${bands.length} band presets`);
     }
 
     document.getElementById("startBtn").addEventListener("click", async () => {
       await api("/api/start", { method: "POST" });
+      addLog("info", "SDR started");
       await refreshStatus();
     });
 
     document.getElementById("stopBtn").addEventListener("click", async () => {
       await api("/api/stop", { method: "POST" });
+      addLog("info", "SDR stopped");
       await refreshStatus();
     });
 
     controls.scanSdrBtn.addEventListener("click", async () => {
+      addLog("info", "Scanning for SDR devices...");
       await refreshSdrDevices();
       await refreshStatus();
     });
 
     controls.connectSdrBtn.addEventListener("click", async () => {
       if (!controls.sdrDeviceSelect.value) {
+        addLog("warning", "Please select an SDR device first");
         return;
       }
+      addLog("info", `Connecting to ${controls.sdrDeviceSelect.value}...`);
       await api("/api/connect_sdr", {
         method: "POST",
         body: JSON.stringify({ device_id: controls.sdrDeviceSelect.value }),
@@ -452,16 +826,8 @@
     });
 
     controls.disconnectSdrBtn.addEventListener("click", async () => {
+      addLog("info", "Disconnecting SDR...");
       await api("/api/disconnect_sdr", { method: "POST" });
-      await refreshStatus();
-    });
-
-    controls.bandSelect.addEventListener("change", async () => {
-      if (!controls.bandSelect.value) return;
-      await api("/api/set_band", {
-        method: "POST",
-        body: JSON.stringify({ band: controls.bandSelect.value }),
-      });
       await refreshStatus();
     });
 

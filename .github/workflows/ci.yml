@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run API contract tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Startup smoke check
+        run: |
+          python -c "from waverider_common import AppState; from waverider_web import create_app; app=create_app(AppState()); c=app.test_client(); r=c.get('/api/status'); assert r.status_code == 200, r.status_code; print('smoke-ok')"
