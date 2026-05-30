@@ -11,6 +11,7 @@ import subprocess
 import shutil
 import sys
 import threading
+import time
 from typing import Optional
 
 import numpy as np
@@ -265,6 +266,8 @@ class Demodulator:
 	def __init__(self) -> None:
 		self.squelch_db = -50.0
 		self.bandwidth_hz = 0.0  # 0 = no filtering (pass-through)
+		self.noise_blanker = False  # Impulse noise suppression
+		self.noise_blanker_threshold = 3.0  # Multiplier over mean power
 
 	def set_squelch(self, value_db: float) -> None:
 		self.squelch_db = value_db
@@ -272,6 +275,30 @@ class Demodulator:
 	def set_bandwidth(self, bandwidth_hz: float) -> None:
 		"""Set the filter bandwidth in Hz. 0 disables filtering."""
 		self.bandwidth_hz = max(0.0, float(bandwidth_hz))
+
+	def set_noise_blanker(self, enabled: bool, threshold: float = 3.0) -> None:
+		"""Enable/disable impulse noise blanker."""
+		self.noise_blanker = bool(enabled)
+		self.noise_blanker_threshold = max(1.1, float(threshold))
+
+	def apply_noise_blanker(self, samples: np.ndarray) -> np.ndarray:
+		"""Suppress impulse spikes that exceed threshold * mean power."""
+		if not self.noise_blanker or len(samples) < 4:
+			return samples
+		try:
+			pwr = np.abs(samples) ** 2
+			mean_pwr = np.mean(pwr)
+			if mean_pwr <= 0:
+				return samples
+			limit = mean_pwr * (self.noise_blanker_threshold ** 2)
+			mask = pwr > limit
+			if not np.any(mask):
+				return samples
+			out = samples.copy()
+			out[mask] = 0
+			return out
+		except Exception:
+			return samples
 
 	def apply_bandwidth_filter(self, samples: np.ndarray, sample_rate: float) -> np.ndarray:
 		"""Apply a rectangular band-pass filter in the frequency domain."""
@@ -669,11 +696,14 @@ class AppState:
 		self.modulation_mode = "None"
 		self.morse_enabled = False
 		self.bandwidth_hz = 0.0  # 0 = no filtering
+		self.noise_blanker = False
+		self.ppm_correction = 0.0  # Frequency correction in parts-per-million
 		self.signal_strength_db = -120.0
 		self.signal_detected = False
 		self.active_source = "Simulated"
 		self.source_notice: Optional[str] = None
 		self.waterfall_settings = WaterfallSettings()
+		self.raw_samples: Optional[np.ndarray] = None  # Latest raw IQ samples for recording
 
 	def _resize_buffers(self) -> None:
 		self.waveform_data = np.zeros(self.fft_size, dtype=np.float32)
@@ -691,6 +721,9 @@ class AppState:
 		squelch_db: Optional[float] = None,
 		morse_enabled: Optional[bool] = None,
 		bandwidth_hz: Optional[float] = None,
+		noise_blanker: Optional[bool] = None,
+		noise_blanker_threshold: Optional[float] = None,
+		ppm_correction: Optional[float] = None,
 	) -> None:
 		if frequency_mhz is not None:
 			self.center_freq = max(0.0, float(frequency_mhz) * 1_000_000.0)
@@ -717,6 +750,14 @@ class AppState:
 		if bandwidth_hz is not None:
 			self.bandwidth_hz = max(0.0, float(bandwidth_hz))
 			self.demodulator.set_bandwidth(self.bandwidth_hz)
+		if noise_blanker is not None:
+			self.noise_blanker = bool(noise_blanker)
+			threshold = float(noise_blanker_threshold) if noise_blanker_threshold is not None else self.demodulator.noise_blanker_threshold
+			self.demodulator.set_noise_blanker(self.noise_blanker, threshold)
+		if noise_blanker_threshold is not None and noise_blanker is None:
+			self.demodulator.set_noise_blanker(self.noise_blanker, float(noise_blanker_threshold))
+		if ppm_correction is not None:
+			self.ppm_correction = float(ppm_correction)
 
 		if self.waterfall_settings.min_db >= self.waterfall_settings.max_db:
 			self.waterfall_settings.max_db = self.waterfall_settings.min_db + 1.0
@@ -754,6 +795,25 @@ class AppState:
 			self.active_source = "Simulated"
 			self.source_notice = None
 			samples = self.generator.generate_samples(self.fft_size)
+
+		# Store raw samples for IQ recording before any processing
+		self.raw_samples = samples.copy()
+
+		# Apply PPM correction offset to effective center frequency
+		effective_freq = self.center_freq * (1.0 + self.ppm_correction / 1_000_000.0)
+		if self.ppm_correction != 0.0 and self.sdr.is_connected:
+			# Shift by PPM offset in frequency domain
+			try:
+				freq_shift_hz = effective_freq - self.center_freq
+				t = np.arange(len(samples)) / self.sample_rate
+				shift = np.exp(-2j * np.pi * freq_shift_hz * t).astype(np.complex64)
+				if np.iscomplexobj(samples):
+					samples = (samples * shift).astype(np.complex64)
+			except Exception:
+				pass
+
+		# Apply noise blanker before bandwidth filter
+		samples = self.demodulator.apply_noise_blanker(samples)
 
 		# Apply bandwidth filter before processing
 		filtered_samples = self.demodulator.apply_bandwidth_filter(samples, self.sample_rate)
@@ -801,9 +861,81 @@ class AppState:
 			"sdr_devices": self.sdr.detect_devices(),
 			"connected_sdr_id": connected_id,
 			"bandwidth_hz": self.bandwidth_hz,
+			"noise_blanker": self.noise_blanker,
+			"noise_blanker_threshold": self.demodulator.noise_blanker_threshold,
+			"ppm_correction": self.ppm_correction,
+			"squelch_db": self.demodulator.squelch_db,
 		}
 
 
 def bands_as_dicts() -> list[dict[str, object]]:
 	return [asdict(band) for band in BANDS]
+
+
+class FrequencyScanner:
+	"""Steps through a frequency range, pausing when a signal is detected."""
+
+	def __init__(self) -> None:
+		self.active = False
+		self.start_hz = 88_000_000.0
+		self.stop_hz = 108_000_000.0
+		self.step_hz = 100_000.0
+		self.dwell_ms = 200
+		self.pause_on_signal = True
+		self.current_freq_hz = 88_000_000.0
+		self._last_step_time = 0.0
+		self._signal_paused = False
+
+	def start(
+		self,
+		start_hz: float,
+		stop_hz: float,
+		step_hz: float = 100_000.0,
+		dwell_ms: int = 200,
+		pause_on_signal: bool = True,
+	) -> None:
+		self.start_hz = float(start_hz)
+		self.stop_hz = float(stop_hz)
+		self.step_hz = abs(float(step_hz))
+		self.dwell_ms = max(50, int(dwell_ms))
+		self.pause_on_signal = bool(pause_on_signal)
+		self.current_freq_hz = self.start_hz
+		self._last_step_time = time.monotonic()
+		self._signal_paused = False
+		self.active = True
+
+	def stop(self) -> None:
+		self.active = False
+		self._signal_paused = False
+
+	def update(self, state: "AppState") -> None:
+		"""Advance to next frequency when dwell elapses. Call inside state.lock."""
+		if not self.active:
+			return
+		now = time.monotonic()
+		if self.pause_on_signal and state.signal_detected:
+			self._last_step_time = now  # keep resetting dwell while signal present
+			self._signal_paused = True
+			return
+		self._signal_paused = False
+		if now - self._last_step_time < self.dwell_ms / 1000.0:
+			return
+		self.current_freq_hz += self.step_hz
+		if self.current_freq_hz > self.stop_hz:
+			self.current_freq_hz = self.start_hz
+		state.center_freq = self.current_freq_hz
+		state.generator.center_freq = self.current_freq_hz
+		self._last_step_time = now
+
+	def get_status(self) -> dict[str, object]:
+		return {
+			"active": self.active,
+			"current_freq_hz": self.current_freq_hz,
+			"start_hz": self.start_hz,
+			"stop_hz": self.stop_hz,
+			"step_hz": self.step_hz,
+			"dwell_ms": self.dwell_ms,
+			"pause_on_signal": self.pause_on_signal,
+			"signal_paused": self._signal_paused,
+		}
 

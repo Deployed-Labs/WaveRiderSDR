@@ -148,6 +148,20 @@
       color: #ffb570;
     }
 
+    #sparklineWrap {
+      width: 100%;
+      margin-top: 4px;
+    }
+
+    #sparklineWrap canvas {
+      display: block;
+      width: 100%;
+      height: 48px;
+      border-radius: 4px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+    }
+
     .theme-toggle {
       background: linear-gradient(135deg, #2a3f5f, #1a2f4f);
       border: 1px solid var(--line);
@@ -415,6 +429,9 @@
           <div class="control"><button id="recordBtn" class="btn-primary">🔴 Record</button></div>
           <div class="control"><button id="stopRecordBtn" class="btn-danger" style="display:none;">⏹ Stop Record</button></div>
           <div id="recordStatus" style="display:none; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 12px;"></div>
+          <div class="control"><button id="iqRecordBtn" class="btn-primary" style="background: linear-gradient(135deg, #7b2fc9, #5a1f9a);">📡 IQ Record</button></div>
+          <div class="control"><button id="stopIqBtn" class="btn-danger" style="display:none;">⏹ Stop IQ</button></div>
+          <div id="iqStatus" style="display:none; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 12px;"></div>
         </div>
 
         <div class="row" style="margin-top:12px;">
@@ -428,6 +445,21 @@
           <div class="control">
             <label>Squelch dB</label>
             <input id="squelch" type="number" value="-50" />
+          </div>
+          <div class="control">
+            <label>Noise Blanker</label>
+            <select id="noiseBlanker">
+              <option value="false">Off</option>
+              <option value="true">On</option>
+            </select>
+          </div>
+          <div class="control">
+            <label>NB Threshold <span id="nbThreshLabel" style="color:var(--accent); font-weight:600;">3.0×</span></label>
+            <input id="nbThreshold" type="range" min="1.5" max="10" step="0.5" value="3" style="width:90px;" />
+          </div>
+          <div class="control">
+            <label>PPM Correction <span id="ppmLabel" style="color:var(--accent); font-weight:600;">0</span></label>
+            <input id="ppmCorrection" type="range" min="-100" max="100" step="1" value="0" style="width:120px;" />
           </div>
           <div class="control">
             <label>Morse Decoder</label>
@@ -450,6 +482,48 @@
       </div>
     </section>
 
+    <!-- ── Frequency Scanner ─────────────────────────────────────────── -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Frequency Scanner</h2>
+        <span id="scanStatus" style="font-size:0.85rem; color:var(--muted);">Idle</span>
+      </div>
+      <div class="pane">
+        <div class="row">
+          <div class="control">
+            <label>Start (MHz)</label>
+            <input id="scanStart" type="number" step="0.1" value="88" style="width:90px;" />
+          </div>
+          <div class="control">
+            <label>Stop (MHz)</label>
+            <input id="scanStop" type="number" step="0.1" value="108" style="width:90px;" />
+          </div>
+          <div class="control">
+            <label>Step (kHz)</label>
+            <input id="scanStep" type="number" step="1" value="100" min="1" style="width:80px;" />
+          </div>
+          <div class="control">
+            <label>Dwell (ms)</label>
+            <input id="scanDwell" type="number" step="10" value="200" min="50" max="10000" style="width:80px;" />
+          </div>
+          <div class="control">
+            <label>Pause on Signal</label>
+            <select id="scanPause">
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div class="control" style="align-self:flex-end;">
+            <button id="scanStartBtn" class="btn-primary">▶ Start Scan</button>
+          </div>
+          <div class="control" style="align-self:flex-end;">
+            <button id="scanStopBtn" class="btn-danger" style="display:none;">⏹ Stop Scan</button>
+          </div>
+        </div>
+        <div id="scanInfo" style="margin-top:6px; font-size:0.82rem; color:var(--muted); display:none;"></div>
+      </div>
+    </section>
+
     <section class="card grid">
       <div class="pane">
         <canvas id="waveform" width="1100" height="180"></canvas>
@@ -462,7 +536,11 @@
         <span>Morse: </span>
         <span>Source: Simulated</span>
         <span>Signal: -120.0 dB</span>
+        <span id="squelchIndicator"></span>
         <span>Meshtastic: none</span>
+      </div>
+      <div id="sparklineWrap">
+        <canvas id="sparkline" height="48"></canvas>
       </div>
     </section>
 
@@ -547,8 +625,24 @@
       runState: document.getElementById("runState"),
       statusText: document.getElementById("statusText"),
       connectionInfo: document.getElementById("connectionInfo"),
+      noise_blanker: document.getElementById("noiseBlanker"),
+      nbThreshold: document.getElementById("nbThreshold"),
+      nbThreshLabel: document.getElementById("nbThreshLabel"),
+      ppmCorrection: document.getElementById("ppmCorrection"),
+      ppmLabel: document.getElementById("ppmLabel"),
+      squelchIndicator: document.getElementById("squelchIndicator"),
       logMessages: document.getElementById("logMessages"),
-      logClearBtn: document.getElementById("logClearBtn")
+      logClearBtn: document.getElementById("logClearBtn"),
+      // Scanner controls
+      scanStart: document.getElementById("scanStart"),
+      scanStop: document.getElementById("scanStop"),
+      scanStep: document.getElementById("scanStep"),
+      scanDwell: document.getElementById("scanDwell"),
+      scanPause: document.getElementById("scanPause"),
+      scanStartBtn: document.getElementById("scanStartBtn"),
+      scanStopBtn: document.getElementById("scanStopBtn"),
+      scanStatus: document.getElementById("scanStatus"),
+      scanInfo: document.getElementById("scanInfo"),
     };
 
     // ========== Band Management ==========
@@ -789,6 +883,7 @@
         `${s.source_notice ? `<span class="status-warning">${s.source_notice}</span>` : ""}`;
 
       updateConnectionInfo(s);
+      updateSquelchIndicator(s.signal_strength_db, s.squelch_db, s.signal_detected);
 
       if (Array.isArray(s.sdr_devices)) {
         const existing = new Set(Array.from(controls.sdrDeviceSelect.options).map((o) => o.value));
@@ -837,6 +932,9 @@
           squelch_db: Number(controls.squelch.value),
           morse_enabled: controls.morseEnabled.value === "true",
           bandwidth_hz: Number(controls.bandwidth.value),
+          noise_blanker: controls.noise_blanker.value === "true",
+          noise_blanker_threshold: Number(controls.nbThreshold.value),
+          ppm_correction: Number(controls.ppmCorrection.value),
         }),
       });
       
@@ -866,6 +964,36 @@
 
     // Bandwidth Filter
     const MODE_BW_DEFAULTS = { None: 0, AM: 6000, FM: 200000, USB: 3000, LSB: 3000, CW: 500 };
+
+    // Noise Blanker controls
+    controls.nbThreshold.addEventListener("input", () => {
+      controls.nbThreshLabel.textContent = `${Number(controls.nbThreshold.value).toFixed(1)}\u00d7`;
+      sendConfig();
+    });
+    controls.noise_blanker.addEventListener("change", () => {
+      controls.nbThreshold.disabled = controls.noise_blanker.value !== "true";
+      sendConfig();
+    });
+
+    // PPM Correction
+    controls.ppmCorrection.addEventListener("input", () => {
+      const ppm = Number(controls.ppmCorrection.value);
+      controls.ppmLabel.textContent = `${ppm > 0 ? "+" : ""}${ppm}`;
+      sendConfig();
+    });
+
+    // Squelch visual indicator — updated in refreshStatus
+    function updateSquelchIndicator(signalDb, squelchDb, signalDetected) {
+      const el = controls.squelchIndicator;
+      if (!el) return;
+      if (signalDetected) {
+        el.textContent = "\u25cf Signal Active";
+        el.style.color = "#1aa88f";
+      } else {
+        el.textContent = "\u25cf Squelched";
+        el.style.color = "#d84e44";
+      }
+    }
 
     function formatBandwidth(hz) {
       if (!hz || hz === 0) return "Off";
@@ -914,6 +1042,67 @@
         controls.bandwidth.step = 500;
       }
       updateBandwidthLabel();
+    });
+
+    // Audio Recording
+    let recordingStatus = null;
+    let recordingCheckInterval = null;
+
+    // IQ Recording
+    let iqCheckInterval = null;
+
+    async function updateIQStatus() {
+      try {
+        const response = await fetch("/api/iq/status");
+        const status = await response.json();
+        const iqRecordBtn = document.getElementById("iqRecordBtn");
+        const stopIqBtn = document.getElementById("stopIqBtn");
+        const iqStatusDiv = document.getElementById("iqStatus");
+        if (status.recording) {
+          iqRecordBtn.style.display = "none";
+          stopIqBtn.style.display = "inline-block";
+          iqStatusDiv.style.display = "inline-block";
+          const dur = status.duration_seconds.toFixed(1);
+          const sz = status.file_size_mb.toFixed(1);
+          const freq = status.center_freq_mhz.toFixed(3);
+          iqStatusDiv.textContent = `IQ @ ${freq}MHz | ${dur}s | ${sz}MB`;
+        } else {
+          iqRecordBtn.style.display = "inline-block";
+          stopIqBtn.style.display = "none";
+          iqStatusDiv.style.display = "none";
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    document.getElementById("iqRecordBtn").addEventListener("click", async () => {
+      try {
+        const response = await api("/api/iq/start", { method: "POST" });
+        if (response.ok) {
+          addLog("info", `IQ recording started: ${response.filename}`);
+          if (iqCheckInterval) clearInterval(iqCheckInterval);
+          iqCheckInterval = setInterval(updateIQStatus, 500);
+          updateIQStatus();
+        } else {
+          addLog("error", `IQ recording failed: ${response.error}`);
+        }
+      } catch (e) {
+        addLog("error", `IQ recording error: ${e.message}`);
+      }
+    });
+
+    document.getElementById("stopIqBtn").addEventListener("click", async () => {
+      try {
+        const response = await api("/api/iq/stop", { method: "POST" });
+        if (response.ok) {
+          addLog("info", response.message);
+        } else {
+          addLog("error", `Stop IQ failed: ${response.error}`);
+        }
+        if (iqCheckInterval) clearInterval(iqCheckInterval);
+        updateIQStatus();
+      } catch (e) {
+        addLog("error", `Stop IQ error: ${e.message}`);
+      }
     });
 
     // Audio Recording
@@ -1021,6 +1210,145 @@
         await sendConfig();
       });
     });
+
+    // ── Frequency Scanner ──────────────────────────────────────────────────
+    let scanPollInterval = null;
+
+    async function updateScanStatus() {
+      try {
+        const s = await api("/api/scan/status");
+        if (s.active) {
+          const freqMHz = (s.current_freq_hz / 1e6).toFixed(3);
+          const label = s.signal_paused ? `⏸ Paused — signal on ${freqMHz} MHz` : `▶ Scanning — ${freqMHz} MHz`;
+          controls.scanStatus.textContent = label;
+          controls.scanStatus.style.color = s.signal_paused ? "#1aa88f" : "var(--accent)";
+          controls.scanInfo.style.display = "block";
+          controls.scanInfo.textContent =
+            `Range: ${(s.start_hz/1e6).toFixed(3)}–${(s.stop_hz/1e6).toFixed(3)} MHz  ` +
+            `Step: ${(s.step_hz/1e3).toFixed(1)} kHz  Dwell: ${s.dwell_ms} ms`;
+          controls.scanStartBtn.style.display = "none";
+          controls.scanStopBtn.style.display = "";
+        } else {
+          controls.scanStatus.textContent = "Idle";
+          controls.scanStatus.style.color = "var(--muted)";
+          controls.scanInfo.style.display = "none";
+          controls.scanStartBtn.style.display = "";
+          controls.scanStopBtn.style.display = "none";
+          if (scanPollInterval) { clearInterval(scanPollInterval); scanPollInterval = null; }
+        }
+      } catch (_) {}
+    }
+
+    controls.scanStartBtn.addEventListener("click", async () => {
+      const start_hz = parseFloat(controls.scanStart.value) * 1e6;
+      const stop_hz = parseFloat(controls.scanStop.value) * 1e6;
+      const step_hz = parseFloat(controls.scanStep.value) * 1e3;
+      const dwell_ms = parseInt(controls.scanDwell.value, 10);
+      const pause_on_signal = controls.scanPause.value === "true";
+      const res = await api("/api/scan/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start_hz, stop_hz, step_hz, dwell_ms, pause_on_signal })
+      });
+      if (res.ok) {
+        scanPollInterval = setInterval(updateScanStatus, 500);
+        updateScanStatus();
+      } else {
+        alert("Scan error: " + (res.error || "unknown"));
+      }
+    });
+
+    controls.scanStopBtn.addEventListener("click", async () => {
+      await api("/api/scan/stop", { method: "POST" });
+      updateScanStatus();
+    });
+
+    // ── Signal Strength Sparkline ──────────────────────────────────────────
+    const sparklineCanvas = document.getElementById("sparkline");
+
+    function drawSparkline(history) {
+      if (!sparklineCanvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = sparklineCanvas.offsetWidth || 400;
+      const h = 48;
+      sparklineCanvas.width = w * dpr;
+      sparklineCanvas.height = h * dpr;
+      const ctx = sparklineCanvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+
+      const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+      const lineColor = isDark ? "#1aa88f" : "#0d8c77";
+      const squelchColor = "rgba(216,78,68,0.5)";
+      const gridColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)";
+
+      if (!history || history.length < 2) {
+        ctx.fillStyle = isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.3)";
+        ctx.font = "11px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("No history yet", w / 2, h / 2 + 4);
+        return;
+      }
+
+      const dbs = history.map(p => p[1]);
+      const minDb = Math.min(-120, ...dbs);
+      const maxDb = Math.max(-20, ...dbs);
+      const range = maxDb - minDb || 1;
+      const toY = db => h - 4 - ((db - minDb) / range) * (h - 8);
+
+      // Grid lines at -120, -80, -40 dB
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 1;
+      for (const g of [-120, -80, -40]) {
+        if (g >= minDb && g <= maxDb) {
+          const y = toY(g);
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+      }
+
+      // Squelch line (from last status fetch)
+      const sqDb = parseFloat(controls.squelch?.value ?? "-50");
+      if (!isNaN(sqDb)) {
+        const sy = toY(sqDb);
+        ctx.strokeStyle = squelchColor;
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Signal line
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      history.forEach((p, i) => {
+        const x = (p[0] / (history[history.length - 1][0] || 1)) * w;
+        const y = toY(p[1]);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Fill under the line
+      const lastX = (history[history.length - 1][0] / (history[history.length - 1][0] || 1)) * w;
+      ctx.lineTo(lastX, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, isDark ? "rgba(26,168,143,0.3)" : "rgba(13,140,119,0.25)");
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    async function refreshSparkline() {
+      try {
+        const data = await api("/api/signal_history");
+        drawSparkline(data.history);
+      } catch (_) { /* non-critical */ }
+    }
+
+    setInterval(refreshSparkline, 2000);
+    refreshSparkline();
 
     async function loop() {
       await refreshStatus();
