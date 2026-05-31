@@ -168,6 +168,43 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(bad.status_code, 400)
         self.assertFalse(bad.get_json().get("ok"))
 
+    def test_scan_start_rejects_step_larger_than_span(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 101_000_000,
+                "step_hz": 2_000_000,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
+    def test_scan_start_rejects_too_wide_span(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 800_000_000,
+                "step_hz": 100_000,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
+    def test_scan_start_rejects_too_small_dwell(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 101_000_000,
+                "step_hz": 100_000,
+                "dwell_ms": 10,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
 
 class TcpControlDispatchTests(unittest.TestCase):
     def setUp(self) -> None:

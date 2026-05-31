@@ -19,7 +19,7 @@ _SDR_SETUP_FILE = pathlib.Path(__file__).with_name("SDR_SETUP.md")
 # Pre-built hex lookup table — avoids per-pixel f-string calls in the waterfall hot path.
 _WF_HEX: list[str] = [f"{i:02x}" for i in range(256)]
 
-from waverider_common import AppState, BANDS, run_startup_preflight
+from waverider_common import AppState, BANDS, FrequencyScanner, run_startup_preflight
 
 
 class WaveRiderTkGui:
@@ -33,6 +33,7 @@ class WaveRiderTkGui:
         self._configure_style()
 
         self.state = AppState()
+        self.scanner = FrequencyScanner()
         if startup_notice:
             self.state.source_notice = startup_notice
         # Run the signal-processing loop (FFT + hardware I/O) on a dedicated
@@ -48,10 +49,12 @@ class WaveRiderTkGui:
         self.spectrum_marker_ratio = 0.5
         self.startup_notice = startup_notice
         self.startup_missing_required = startup_missing_required
+        self._saved_settings: dict[str, object] = {}
         self._startup_alpha = 0.0
         self._wf_pos: int = -1  # circular-buffer write pointer; -1 = needs init
         self._load_presets()
         self._build_ui()
+        self._restore_saved_settings()
         self._refresh_preset_buttons()
         self._animate_startup()
         self._show_startup_requirements_dialog_if_needed()
@@ -369,7 +372,53 @@ class WaveRiderTkGui:
             justify="left",
         ).grid(row=1, column=0, sticky="w", padx=12, pady=(12, 0))
 
-        # ============= TAB 4: ADVANCED =============
+        # ============= TAB 4: SCANNER =============
+        scanner_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
+        scanner_tab.columnconfigure(0, weight=1)
+        scanner_tab.columnconfigure(1, weight=1)
+        self.control_tabs.add(scanner_tab, text="Scanner")
+
+        ttk.Label(scanner_tab, text="Start (MHz)", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 0))
+        self.scan_start_var = tk.StringVar(value="88.0")
+        ttk.Entry(scanner_tab, textvariable=self.scan_start_var).grid(row=1, column=0, sticky="ew", padx=12, pady=(2, 10))
+
+        ttk.Label(scanner_tab, text="Stop (MHz)", style="Body.TLabel").grid(row=0, column=1, sticky="w", padx=12, pady=(12, 0))
+        self.scan_stop_var = tk.StringVar(value="108.0")
+        ttk.Entry(scanner_tab, textvariable=self.scan_stop_var).grid(row=1, column=1, sticky="ew", padx=12, pady=(2, 10))
+
+        ttk.Label(scanner_tab, text="Step (kHz)", style="Body.TLabel").grid(row=2, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.scan_step_var = tk.StringVar(value="100")
+        ttk.Entry(scanner_tab, textvariable=self.scan_step_var).grid(row=3, column=0, sticky="ew", padx=12, pady=(2, 10))
+
+        ttk.Label(scanner_tab, text="Dwell (ms)", style="Body.TLabel").grid(row=2, column=1, sticky="w", padx=12, pady=(0, 0))
+        self.scan_dwell_var = tk.StringVar(value="200")
+        ttk.Entry(scanner_tab, textvariable=self.scan_dwell_var).grid(row=3, column=1, sticky="ew", padx=12, pady=(2, 10))
+
+        self.scan_pause_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(scanner_tab, text="Pause on signal", variable=self.scan_pause_var).grid(row=4, column=0, sticky="w", padx=12, pady=(0, 10))
+
+        scanner_preset_row = ttk.Frame(scanner_tab, style="Card.TFrame")
+        scanner_preset_row.grid(row=4, column=1, sticky="e", padx=12, pady=(0, 10))
+        ttk.Button(scanner_preset_row, text="FM", command=lambda: self._apply_scan_preset("fm")).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(scanner_preset_row, text="2m", command=lambda: self._apply_scan_preset("2m")).grid(row=0, column=1, padx=(0, 6))
+        ttk.Button(scanner_preset_row, text="NOAA", command=lambda: self._apply_scan_preset("noaa")).grid(row=0, column=2)
+
+        scanner_btn_row = ttk.Frame(scanner_tab, style="Card.TFrame")
+        scanner_btn_row.grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
+        scanner_btn_row.columnconfigure((0, 1), weight=1)
+        self.scan_start_btn = ttk.Button(scanner_btn_row, text="Start Scan", style="Accent.TButton", command=self._start_scan)
+        self.scan_start_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.scan_stop_btn = ttk.Button(scanner_btn_row, text="Stop Scan", style="Accent.TButton", command=self._stop_scan)
+        self.scan_stop_btn.grid(row=0, column=1, sticky="ew")
+
+        ttk.Label(scanner_tab, text="Scanner Status", style="Body.TLabel").grid(row=6, column=0, sticky="w", padx=12, pady=(0, 0))
+        self.scan_status_var = tk.StringVar(value="Idle")
+        ttk.Label(scanner_tab, textvariable=self.scan_status_var, style="Muted.TLabel").grid(row=7, column=0, columnspan=2, sticky="w", padx=12, pady=(2, 6))
+
+        self.scan_progress = ttk.Progressbar(scanner_tab, orient="horizontal", mode="determinate", maximum=100)
+        self.scan_progress.grid(row=8, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 12))
+
+        # ============= TAB 5: ADVANCED =============
         adv_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
         adv_tab.columnconfigure(0, weight=1)
         adv_tab.columnconfigure(1, weight=1)
@@ -565,8 +614,14 @@ class WaveRiderTkGui:
                         "frequency_mhz": float(typed["frequency_mhz"]),  # type: ignore[arg-type]
                         "mode": str(typed["mode"]),
                     }
+
+            settings = data.get("settings", {})
+            if isinstance(settings, dict):
+                self._saved_settings = cast(dict[str, object], settings)
+            else:
+                self._saved_settings = {}
         except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-            pass
+            self._saved_settings = {}
 
     def _save_presets(self) -> None:
         slots: list[dict[str, float | str] | None] = []
@@ -575,10 +630,52 @@ class WaveRiderTkGui:
                 slots.append(None)
             else:
                 slots.append({"frequency_mhz": float(preset["frequency_mhz"]), "mode": str(preset["mode"])})
+
+        settings: dict[str, object] = {
+            "bandwidth_hz": self.bandwidth_var.get(),
+            "ppm_correction": self.ppm_var.get(),
+            "noise_blanker": bool(self.noise_blanker_var.get()),
+            "noise_blanker_threshold": self.nb_threshold_var.get(),
+            "scan_start_mhz": self.scan_start_var.get(),
+            "scan_stop_mhz": self.scan_stop_var.get(),
+            "scan_step_khz": self.scan_step_var.get(),
+            "scan_dwell_ms": self.scan_dwell_var.get(),
+            "scan_pause_on_signal": bool(self.scan_pause_var.get()),
+        }
         try:
-            _PRESETS_FILE.write_text(json.dumps({"presets": slots}, indent=2), encoding="utf-8")
+            _PRESETS_FILE.write_text(json.dumps({"presets": slots, "settings": settings}, indent=2), encoding="utf-8")
         except OSError:
             pass
+
+    def _restore_saved_settings(self) -> None:
+        settings = self._saved_settings
+        value = settings.get("bandwidth_hz")
+        if value is not None:
+            self.bandwidth_var.set(str(value))
+        value = settings.get("ppm_correction")
+        if value is not None:
+            self.ppm_var.set(str(value))
+        value = settings.get("noise_blanker")
+        if value is not None:
+            self.noise_blanker_var.set(bool(value))
+        value = settings.get("noise_blanker_threshold")
+        if value is not None:
+            self.nb_threshold_var.set(str(value))
+        value = settings.get("scan_start_mhz")
+        if value is not None:
+            self.scan_start_var.set(str(value))
+        value = settings.get("scan_stop_mhz")
+        if value is not None:
+            self.scan_stop_var.set(str(value))
+        value = settings.get("scan_step_khz")
+        if value is not None:
+            self.scan_step_var.set(str(value))
+        value = settings.get("scan_dwell_ms")
+        if value is not None:
+            self.scan_dwell_var.set(str(value))
+        value = settings.get("scan_pause_on_signal")
+        if value is not None:
+            self.scan_pause_var.set(bool(value))
 
     def _on_close(self) -> None:
         self._save_presets()
@@ -874,6 +971,64 @@ class WaveRiderTkGui:
         else:
             self.root.geometry("1280x840")
 
+    def _start_scan(self) -> None:
+        try:
+            start_mhz = float(self.scan_start_var.get())
+            stop_mhz = float(self.scan_stop_var.get())
+            step_khz = float(self.scan_step_var.get())
+            dwell_ms = int(float(self.scan_dwell_var.get()))
+        except ValueError:
+            self.notice_var.set("Invalid scanner numeric input.")
+            return
+
+        start_hz = start_mhz * 1_000_000.0
+        stop_hz = stop_mhz * 1_000_000.0
+        step_hz = step_khz * 1_000.0
+
+        if start_hz >= stop_hz:
+            self.notice_var.set("Scanner start must be lower than stop.")
+            return
+
+        with self.state.lock:
+            self.scanner.start(
+                start_hz=start_hz,
+                stop_hz=stop_hz,
+                step_hz=step_hz,
+                dwell_ms=dwell_ms,
+                pause_on_signal=self.scan_pause_var.get(),
+            )
+        self._save_presets()
+        self.notice_var.set("Scanner started.")
+
+    def _apply_scan_preset(self, preset: str) -> None:
+        if preset == "fm":
+            self.scan_start_var.set("88.0")
+            self.scan_stop_var.set("108.0")
+            self.scan_step_var.set("100")
+            self.scan_dwell_var.set("200")
+            self.scan_pause_var.set(True)
+            self.notice_var.set("Scanner preset: FM broadcast")
+        elif preset == "2m":
+            self.scan_start_var.set("144.0")
+            self.scan_stop_var.set("148.0")
+            self.scan_step_var.set("12.5")
+            self.scan_dwell_var.set("250")
+            self.scan_pause_var.set(True)
+            self.notice_var.set("Scanner preset: 2m amateur")
+        elif preset == "noaa":
+            self.scan_start_var.set("162.400")
+            self.scan_stop_var.set("162.550")
+            self.scan_step_var.set("25")
+            self.scan_dwell_var.set("300")
+            self.scan_pause_var.set(True)
+            self.notice_var.set("Scanner preset: NOAA weather")
+        self._save_presets()
+
+    def _stop_scan(self) -> None:
+        with self.state.lock:
+            self.scanner.stop()
+        self.notice_var.set("Scanner stopped.")
+
     def _start(self) -> None:
         with self.state.lock:
             self.state.start()
@@ -913,6 +1068,7 @@ class WaveRiderTkGui:
                 noise_blanker_threshold=nb_threshold,
                 ppm_correction=ppm_correction,
             )
+        self._save_presets()
         self.notice_var.set("Configuration updated.")
 
     def _schedule_update(self) -> None:
@@ -924,6 +1080,7 @@ class WaveRiderTkGui:
         while True:
             with self.state.lock:
                 if self.state.running:
+                    self.scanner.update(self.state)
                     self.state.tick()
             time.sleep(0.04)  # ~25 Hz signal update rate
 
@@ -991,6 +1148,30 @@ class WaveRiderTkGui:
             self.signal_badge.configure(style="WarnBadge.TLabel")
         else:
             self.signal_badge.configure(style="GoodBadge.TLabel")
+
+        scan_status = self.scanner.get_status()
+        if scan_status.get("active"):
+            current_raw = scan_status.get("current_freq_hz")
+            start_raw = scan_status.get("start_hz")
+            stop_raw = scan_status.get("stop_hz")
+            current_hz = float(current_raw) if isinstance(current_raw, (int, float)) else 0.0
+            start_hz = float(start_raw) if isinstance(start_raw, (int, float)) else 0.0
+            stop_hz = float(stop_raw) if isinstance(stop_raw, (int, float)) else 1.0
+            signal_paused = bool(scan_status.get("signal_paused"))
+            self.scan_status_var.set(
+                ("Paused" if signal_paused else "Scanning") +
+                f" @ {current_hz / 1_000_000.0:.3f} MHz"
+            )
+            span = max(1.0, stop_hz - start_hz)
+            progress = max(0.0, min(100.0, ((current_hz - start_hz) / span) * 100.0))
+            self.scan_progress["value"] = progress
+            self.scan_start_btn.state(["disabled"])
+            self.scan_stop_btn.state(["!disabled"])
+        else:
+            self.scan_status_var.set("Idle")
+            self.scan_progress["value"] = 0
+            self.scan_start_btn.state(["!disabled"])
+            self.scan_stop_btn.state(["disabled"])
 
         self._draw_meter(signal_db)
         self._update_device_drawer(status)

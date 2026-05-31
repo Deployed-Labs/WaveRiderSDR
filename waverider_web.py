@@ -409,6 +409,7 @@ def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder, iq_re
     def api_stop():
         with state.lock:
             state.stop()
+            scanner.stop()
         logs.add("info", "SDR stopped")
         return jsonify({"ok": True})
 
@@ -591,7 +592,7 @@ def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder, iq_re
 
     @app.post("/api/scan/start")
     def api_scan_start():
-        data = request.get_json(silent=True) or {}
+        data = _json_payload()
         try:
             start_hz = float(data.get("start_hz", 88_000_000))
             stop_hz = float(data.get("stop_hz", 108_000_000))
@@ -599,15 +600,27 @@ def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder, iq_re
             dwell_ms = int(data.get("dwell_ms", 200))
             pause_on_signal = bool(data.get("pause_on_signal", True))
         except (TypeError, ValueError) as exc:
+            logs.add("warning", f"Scan start rejected: invalid payload ({exc})")
             return jsonify({"ok": False, "error": str(exc)}), 400
         if start_hz >= stop_hz:
+            logs.add("warning", "Scan start rejected: start_hz >= stop_hz")
             return jsonify({"ok": False, "error": "start_hz must be less than stop_hz"}), 400
         if not (100_000 <= start_hz <= 6_000_000_000 and 100_000 <= stop_hz <= 6_000_000_000):
+            logs.add("warning", "Scan start rejected: frequency out of range")
             return jsonify({"ok": False, "error": "Frequency out of range"}), 400
-        if not (10 <= dwell_ms <= 10_000):
-            return jsonify({"ok": False, "error": "dwell_ms must be 10–10000"}), 400
+        if not (50 <= dwell_ms <= 10_000):
+            logs.add("warning", "Scan start rejected: dwell outside 50-10000 ms")
+            return jsonify({"ok": False, "error": "dwell_ms must be 50–10000"}), 400
         if not (1_000 <= step_hz <= 100_000_000):
+            logs.add("warning", "Scan start rejected: step outside 1 kHz-100 MHz")
             return jsonify({"ok": False, "error": "step_hz must be 1 kHz – 100 MHz"}), 400
+        span_hz = stop_hz - start_hz
+        if step_hz >= span_hz:
+            logs.add("warning", "Scan start rejected: step_hz too large for selected span")
+            return jsonify({"ok": False, "error": "step_hz must be smaller than scan span"}), 400
+        if span_hz > 500_000_000:
+            logs.add("warning", "Scan start rejected: scan span exceeds 500 MHz safety limit")
+            return jsonify({"ok": False, "error": "scan span must be 500 MHz or less"}), 400
         scanner.start(start_hz, stop_hz, step_hz, dwell_ms, pause_on_signal)
         logs.add("info", f"Scan started: {start_hz/1e6:.3f}–{stop_hz/1e6:.3f} MHz, step {step_hz/1e3:.1f} kHz")
         return jsonify({"ok": True}), 200
