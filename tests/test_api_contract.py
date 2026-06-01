@@ -1,14 +1,33 @@
 import unittest
+import tempfile
 
-from waverider_common import AppState
-from waverider_web import create_app
+from waverider_common import AppState, FrequencyScanner
+from waverider_web import AudioRecorder, IQRecorder, LogManager, SDRAutoReconnect, SignalHistory, TCPControlServer, _run_tick_loop, create_app
+import threading
+import time
 
 
 class ApiContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.state = AppState()
-        self.app = create_app(self.state)
+        self.logs = LogManager(max_logs=100)
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.recorder = AudioRecorder(recording_dir=self._tmpdir.name)
+        self.iq_recorder = IQRecorder(recording_dir=self._tmpdir.name)
+        self.signal_history = SignalHistory()
+        self.scanner = FrequencyScanner()
+        self.app = create_app(
+            self.state,
+            self.logs,
+            self.recorder,
+            self.iq_recorder,
+            self.signal_history,
+            self.scanner,
+        )
         self.client = self.app.test_client()
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
 
     def test_status_endpoint_shape(self) -> None:
         response = self.client.get("/api/status")
@@ -101,6 +120,188 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("rtl_module", payload["sdr"])
         self.assertIn("hackrf_module", payload["sdr"])
         self.assertIn("last_error", payload["sdr"])
+
+    def test_signal_history_endpoint_shape(self) -> None:
+        response = self.client.get("/api/signal_history")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIn("history", payload)
+        self.assertIn("max_points", payload)
+        self.assertTrue(isinstance(payload["history"], list))
+
+    def test_scan_start_stop_and_status(self) -> None:
+        start = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 88_000_000,
+                "stop_hz": 89_000_000,
+                "step_hz": 100_000,
+                "dwell_ms": 200,
+                "pause_on_signal": True,
+            },
+        )
+        self.assertEqual(start.status_code, 200)
+        self.assertTrue(start.get_json().get("ok"))
+
+        status = self.client.get("/api/scan/status")
+        self.assertEqual(status.status_code, 200)
+        payload = status.get_json()
+        self.assertTrue(payload["active"])
+        self.assertEqual(payload["start_hz"], 88_000_000.0)
+        self.assertEqual(payload["stop_hz"], 89_000_000.0)
+
+        stop = self.client.post("/api/scan/stop")
+        self.assertEqual(stop.status_code, 200)
+        self.assertTrue(stop.get_json().get("ok"))
+
+        status2 = self.client.get("/api/scan/status").get_json()
+        self.assertFalse(status2["active"])
+
+    def test_scan_start_rejects_invalid_range(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 90_000_000,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
+    def test_scan_start_rejects_step_larger_than_span(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 101_000_000,
+                "step_hz": 2_000_000,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
+    def test_scan_start_rejects_too_wide_span(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 800_000_000,
+                "step_hz": 100_000,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
+    def test_scan_start_rejects_too_small_dwell(self) -> None:
+        bad = self.client.post(
+            "/api/scan/start",
+            json={
+                "start_hz": 100_000_000,
+                "stop_hz": 101_000_000,
+                "step_hz": 100_000,
+                "dwell_ms": 10,
+            },
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertFalse(bad.get_json().get("ok"))
+
+
+class TcpControlDispatchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.state = AppState()
+        self.logs = LogManager(max_logs=50)
+        self.tcp = TCPControlServer(self.state, self.logs)
+
+    def test_frequency_get_and_set(self) -> None:
+        with self.state.lock:
+            self.state.center_freq = 101_700_000.0
+            self.state.generator.center_freq = 101_700_000.0
+
+        self.assertEqual(self.tcp._dispatch("F"), "101700000")
+        self.assertEqual(self.tcp._dispatch("F 145000000"), "RPRT 0")
+        with self.state.lock:
+            self.assertEqual(self.state.center_freq, 145_000_000.0)
+
+    def test_mode_get_and_set(self) -> None:
+        with self.state.lock:
+            self.state.modulation_mode = "AM"
+
+        self.assertEqual(self.tcp._dispatch("M"), "AM")
+        self.assertEqual(self.tcp._dispatch("M NFM"), "RPRT 0")
+        with self.state.lock:
+            self.assertEqual(self.state.modulation_mode, "FM")
+
+    def test_squelch_get_and_set(self) -> None:
+        with self.state.lock:
+            self.state.demodulator.set_squelch(-55.0)
+
+        self.assertEqual(self.tcp._dispatch("L SQUELCH"), "-55.0")
+        self.assertEqual(self.tcp._dispatch("L SQUELCH -35"), "RPRT 0")
+        with self.state.lock:
+            self.assertEqual(self.state.demodulator.squelch_db, -35.0)
+
+    def test_ppm_get_and_set(self) -> None:
+        with self.state.lock:
+            self.state.ppm_correction = 2.5
+
+        self.assertEqual(self.tcp._dispatch("P"), "2.5")
+        self.assertEqual(self.tcp._dispatch("P -12"), "RPRT 0")
+        with self.state.lock:
+            self.assertEqual(self.state.ppm_correction, -12.0)
+
+    def test_status_returns_json(self) -> None:
+        res = self.tcp._dispatch("R")
+        self.assertTrue(isinstance(res, str))
+        self.assertIn('"running"', res)
+        self.assertIn('"center_freq"', res)
+
+    def test_quit_returns_none(self) -> None:
+        self.assertIsNone(self.tcp._dispatch("Q"))
+
+    def test_invalid_command_returns_error(self) -> None:
+        self.assertEqual(self.tcp._dispatch("XYZ"), "RPRT -8")
+
+
+class ScannerIntegrationTests(unittest.TestCase):
+    def test_scanner_updates_center_frequency_in_tick_loop(self) -> None:
+        state = AppState()
+        logs = LogManager(max_logs=20)
+        tmp_audio = tempfile.TemporaryDirectory()
+        tmp_iq = tempfile.TemporaryDirectory()
+        recorder = AudioRecorder(recording_dir=tmp_audio.name)
+        iq_recorder = IQRecorder(recording_dir=tmp_iq.name)
+        signal_history = SignalHistory()
+        scanner = FrequencyScanner()
+        try:
+            with state.lock:
+                state.running = True
+                scanner.start(
+                    start_hz=100_000_000,
+                    stop_hz=101_000_000,
+                    step_hz=100_000,
+                    dwell_ms=40,
+                    pause_on_signal=False,
+                )
+
+            stop_event = threading.Event()
+            auto_reconnect = SDRAutoReconnect(logs)
+            t = threading.Thread(
+                target=_run_tick_loop,
+                args=(state, stop_event, auto_reconnect, recorder, iq_recorder, signal_history, scanner),
+                daemon=True,
+            )
+            t.start()
+
+            time.sleep(0.14)
+            stop_event.set()
+            t.join(timeout=1.0)
+
+            with state.lock:
+                self.assertGreater(state.center_freq, 100_000_000.0)
+                self.assertTrue(100_000_000.0 <= state.center_freq <= 101_000_000.0)
+        finally:
+            tmp_audio.cleanup()
+            tmp_iq.cleanup()
 
 
 if __name__ == "__main__":

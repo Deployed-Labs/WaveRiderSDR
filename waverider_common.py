@@ -6,8 +6,12 @@ from dataclasses import asdict, dataclass
 import importlib
 import importlib.util
 import math
+import platform
+import subprocess
 import shutil
+import sys
 import threading
+import time
 from typing import Optional
 
 import numpy as np
@@ -26,6 +30,149 @@ class BandInfo:
 	center_hz: float
 	mode: str
 	description: str
+
+
+@dataclass
+class StartupCheckResult:
+	ok: bool
+	installed_packages: list[str]
+	missing_required: list[str]
+	warnings: list[str]
+
+	def summary(self) -> str:
+		parts: list[str] = []
+		if self.ok:
+			parts.append("Startup check passed")
+		else:
+			parts.append("Startup check found missing requirements")
+		if self.installed_packages:
+			parts.append(f"installed: {', '.join(self.installed_packages)}")
+		if self.missing_required:
+			parts.append(f"missing: {', '.join(self.missing_required)}")
+		if self.warnings:
+			parts.append(f"warnings: {len(self.warnings)}")
+		return " | ".join(parts)
+
+	def short_notice(self) -> str:
+		if self.missing_required:
+			return (
+				"Startup check failed to install required packages: "
+				+ ", ".join(self.missing_required)
+			)
+		if self.installed_packages:
+			return "Startup check installed missing packages successfully."
+		if self.warnings:
+			return self.warnings[0]
+		return ""
+
+
+_startup_check_cache: StartupCheckResult | None = None
+
+
+def _try_pip_install(packages: list[str], warnings: list[str]) -> list[str]:
+	if not packages:
+		return []
+	try:
+		result = subprocess.run(
+			[sys.executable, "-m", "pip", "install", *packages],
+			capture_output=True,
+			text=True,
+			check=False,
+			timeout=300,
+		)
+	except Exception as exc:
+		warnings.append(f"Package install attempt failed: {exc}")
+		return []
+
+	if result.returncode == 0:
+		return list(packages)
+
+	last_lines = "\n".join((result.stderr or result.stdout or "").strip().splitlines()[-3:])
+	warnings.append(
+		"Automatic package installation failed for "
+		+ ", ".join(packages)
+		+ (f" ({last_lines})" if last_lines else "")
+	)
+	return []
+
+
+def run_startup_preflight(auto_install: bool = True, force_refresh: bool = False) -> StartupCheckResult:
+	global _startup_check_cache
+	if _startup_check_cache is not None and not force_refresh:
+		return _startup_check_cache
+
+	required_import_to_package = {
+		"numpy": "numpy>=1.26.0",
+		"flask": "flask>=3.0.0",
+		"serial": "pyserial>=3.5",
+	}
+	optional_import_to_package = {
+		"rtlsdr": "pyrtlsdr",
+		"SoapySDR": "SoapySDR",
+	}
+
+	warnings: list[str] = []
+	installed_packages: list[str] = []
+
+	missing_required = [
+		package
+		for module_name, package in required_import_to_package.items()
+		if importlib.util.find_spec(module_name) is None
+	]
+
+	if missing_required and auto_install:
+		installed_now = _try_pip_install(missing_required, warnings)
+		installed_packages.extend(installed_now)
+		missing_required = [
+			package
+			for module_name, package in required_import_to_package.items()
+			if importlib.util.find_spec(module_name) is None
+		]
+
+	missing_optional = [
+		package
+		for module_name, package in optional_import_to_package.items()
+		if importlib.util.find_spec(module_name) is None
+	]
+
+	if missing_optional and auto_install:
+		installed_now = _try_pip_install(missing_optional, warnings)
+		installed_packages.extend(installed_now)
+		missing_optional = [
+			package
+			for module_name, package in optional_import_to_package.items()
+			if importlib.util.find_spec(module_name) is None
+		]
+
+	rtl_tool = bool(shutil.which("rtl_test"))
+	hackrf_tool = bool(shutil.which("SoapySDRUtil"))
+
+	if missing_optional:
+		warnings.append(
+			"Optional SDR backends are unavailable: "
+			+ ", ".join(missing_optional)
+			+ ". The app will run in simulated mode until hardware modules are installed."
+		)
+
+	if not rtl_tool:
+		warnings.append("RTL-SDR tool rtl_test not found in PATH.")
+	if not hackrf_tool:
+		warnings.append("HackRF/SoapySDR tool SoapySDRUtil not found in PATH.")
+
+	if platform.system().lower() == "windows" and (not rtl_tool or not hackrf_tool):
+		warnings.append(
+			"USB driver installation is not fully automatable from Python alone. "
+			"If hardware is not detected, install WinUSB for RTL-SDR/HackRF with Zadig."
+		)
+
+	ok = not missing_required
+	_startup_check_cache = StartupCheckResult(
+		ok=ok,
+		installed_packages=installed_packages,
+		missing_required=missing_required,
+		warnings=warnings,
+	)
+	return _startup_check_cache
 
 
 BANDS = [
@@ -104,12 +251,74 @@ class WaterfallSettings:
 		return np.clip(out, self.min_db, self.max_db)
 
 
+# Default bandwidths in Hz per modulation mode
+MODE_BANDWIDTHS: dict[str, float] = {
+	"AM": 6_000.0,
+	"FM": 200_000.0,
+	"USB": 3_000.0,
+	"LSB": 3_000.0,
+	"CW": 500.0,
+	"None": 0.0,  # 0 means no filtering
+}
+
+
 class Demodulator:
 	def __init__(self) -> None:
 		self.squelch_db = -50.0
+		self.bandwidth_hz = 0.0  # 0 = no filtering (pass-through)
+		self.noise_blanker = False  # Impulse noise suppression
+		self.noise_blanker_threshold = 3.0  # Multiplier over mean power
 
 	def set_squelch(self, value_db: float) -> None:
 		self.squelch_db = value_db
+
+	def set_bandwidth(self, bandwidth_hz: float) -> None:
+		"""Set the filter bandwidth in Hz. 0 disables filtering."""
+		self.bandwidth_hz = max(0.0, float(bandwidth_hz))
+
+	def set_noise_blanker(self, enabled: bool, threshold: float = 3.0) -> None:
+		"""Enable/disable impulse noise blanker."""
+		self.noise_blanker = bool(enabled)
+		self.noise_blanker_threshold = max(1.1, float(threshold))
+
+	def apply_noise_blanker(self, samples: np.ndarray) -> np.ndarray:
+		"""Suppress impulse spikes that exceed threshold * mean power."""
+		if not self.noise_blanker or len(samples) < 4:
+			return samples
+		try:
+			pwr = np.abs(samples) ** 2
+			mean_pwr = np.mean(pwr)
+			if mean_pwr <= 0:
+				return samples
+			limit = mean_pwr * (self.noise_blanker_threshold ** 2)
+			mask = pwr > limit
+			if not np.any(mask):
+				return samples
+			out = samples.copy()
+			out[mask] = 0
+			return out
+		except Exception:
+			return samples
+
+	def apply_bandwidth_filter(self, samples: np.ndarray, sample_rate: float) -> np.ndarray:
+		"""Apply a rectangular band-pass filter in the frequency domain."""
+		if self.bandwidth_hz <= 0 or sample_rate <= 0 or len(samples) < 4:
+			return samples
+		# Only filter if bandwidth is narrower than Nyquist bandwidth
+		nyquist = sample_rate / 2.0
+		if self.bandwidth_hz >= sample_rate:
+			return samples
+		try:
+			spectrum = np.fft.fft(samples)
+			freqs = np.fft.fftfreq(len(samples), 1.0 / sample_rate)
+			mask = np.abs(freqs) <= min(self.bandwidth_hz / 2.0, nyquist)
+			spectrum[~mask] = 0
+			filtered = np.fft.ifft(spectrum)
+			if np.iscomplexobj(samples):
+				return filtered.astype(np.complex64)
+			return np.real(filtered).astype(np.float32)
+		except Exception:
+			return samples
 
 	def signal_strength_db(self, samples: np.ndarray) -> float:
 		if len(samples) == 0:
@@ -224,29 +433,87 @@ class SdrDevice:
 
 	def detect_devices(self) -> list[dict[str, str]]:
 		devices: list[dict[str, str]] = []
-		rtl_available = (importlib.util.find_spec("rtlsdr") is not None) or bool(shutil.which("rtl_test"))
-		hackrf_available = (importlib.util.find_spec("SoapySDR") is not None) or bool(shutil.which("SoapySDRUtil"))
 
-		if rtl_available:
-			devices.append(
-				{
-					"id": "rtl_sdr_0",
-					"device_type": "RTL-SDR",
-					"backend": "rtlsdr",
-					"name": "RTL-SDR",
-					"description": "RTL-SDR backend available",
-				}
-			)
-		if hackrf_available:
-			devices.append(
-				{
+		# Try to enumerate actual RTL-SDR devices
+		try:
+			rtlsdr = importlib.import_module("rtlsdr")
+			get_devices = getattr(rtlsdr, "open", None)
+			if get_devices:
+				try:
+					# Use rtlsdr.get_device_info_by_index() if available
+					get_device_info = getattr(rtlsdr, "get_device_info_by_index", None)
+					if get_device_info:
+						index = 0
+						while True:
+							try:
+								info = get_device_info(index)
+								devices.append({
+									"id": f"rtl_sdr_{index}",
+									"device_type": "RTL-SDR",
+									"backend": "rtlsdr",
+									"name": f"RTL-SDR #{index}",
+									"description": str(info) if info else "RTL-SDR USB device",
+								})
+								index += 1
+							except (IndexError, OSError, ValueError):
+								break
+							
+						# If no devices found via enumeration, offer generic entry
+						if not devices:
+							devices.append({
+								"id": "rtl_sdr_0",
+								"device_type": "RTL-SDR",
+								"backend": "rtlsdr",
+								"name": "RTL-SDR",
+								"description": "RTL-SDR (connected USB device)",
+							})
+				except Exception:
+					# If enumeration fails, offer generic entry
+					devices.append({
+						"id": "rtl_sdr_0",
+						"device_type": "RTL-SDR",
+						"backend": "rtlsdr",
+						"name": "RTL-SDR",
+						"description": "RTL-SDR (connected USB device)",
+					})
+		except (ImportError, ModuleNotFoundError):
+			pass
+
+		# Try to enumerate actual HackRF devices via SoapySDR
+		try:
+			soapysdr = importlib.import_module("SoapySDR")
+			try:
+				devices_found = soapysdr.Device.enumerate({"driver": "hackrf"})
+				for idx, dev in enumerate(devices_found):
+					devices.append({
+						"id": f"hackrf_{idx}",
+						"device_type": "HackRF",
+						"backend": "hackrf",
+						"name": f"HackRF #{idx}",
+						"description": str(dev) if dev else "HackRF USB device",
+					})
+				
+				# If no devices found via enumeration, offer generic entry
+				if not any(d.get("backend") == "hackrf" for d in devices):
+					devices.append({
+						"id": "hackrf_0",
+						"device_type": "HackRF",
+						"backend": "hackrf",
+						"name": "HackRF",
+						"description": "HackRF (connected USB device)",
+					})
+			except Exception:
+				# If enumeration fails, offer generic entry
+				devices.append({
 					"id": "hackrf_0",
 					"device_type": "HackRF",
 					"backend": "hackrf",
 					"name": "HackRF",
-					"description": "HackRF backend available",
-				}
-			)
+					"description": "HackRF (connected USB device)",
+				})
+		except (ImportError, ModuleNotFoundError):
+			pass
+
 		return devices
 
 	def diagnostics(self) -> dict[str, object]:
@@ -326,42 +593,85 @@ class SdrDevice:
 		if backend == "rtlsdr":
 			if self._rtl_device is None:
 				raise RuntimeError("RTL-SDR backend not initialized")
-			self._rtl_device.sample_rate = float(sample_rate)
-			self._rtl_device.center_freq = float(center_freq)
-			raw = self._rtl_device.read_samples(int(num_samples))
-			return np.asarray(raw, dtype=np.complex64)
+			try:
+				self._rtl_device.sample_rate = float(sample_rate)
+				self._rtl_device.center_freq = float(center_freq)
+				raw = self._rtl_device.read_samples(int(num_samples))
+				return np.asarray(raw, dtype=np.complex64)
+			except Exception as e:
+				raise RuntimeError(f"RTL-SDR read failed: {e}") from e
 
 		if backend == "hackrf":
 			if self._hackrf_device is None or self._hackrf_stream is None:
 				raise RuntimeError("HackRF backend not initialized")
-			return self._read_hackrf_samples(int(num_samples), float(sample_rate), float(center_freq))
+			try:
+				return self._read_hackrf_samples(int(num_samples), float(sample_rate), float(center_freq))
+			except Exception as e:
+				raise RuntimeError(f"HackRF read failed: {e}") from e
 
 		raise RuntimeError("Unknown SDR backend")
 
 	def _connect_rtlsdr(self) -> None:
-		module = importlib.import_module("rtlsdr")
-		RtlSdr = getattr(module, "RtlSdr")
-		self._rtl_device = RtlSdr()
+		try:
+			rtlsdr = importlib.import_module("rtlsdr")
+			RtlSdr = getattr(rtlsdr, "RtlSdr")
+			self._rtl_device = RtlSdr()
+			# Set default parameters
+			if hasattr(self._rtl_device, "gain"):
+				self._rtl_device.gain = "auto"
+		except ImportError as e:
+			raise RuntimeError(
+				f"RTL-SDR module not installed. Install with: pip install pyrtlsdr. Error: {e}"
+			) from e
+		except AttributeError as e:
+			raise RuntimeError(
+				f"RTL-SDR module structure unexpected. Install with: pip install pyrtlsdr. Error: {e}"
+			) from e
+		except Exception as e:
+			raise RuntimeError(f"Failed to initialize RTL-SDR device: {e}") from e
 
 	def _connect_hackrf(self) -> None:
-		soapysdr = importlib.import_module("SoapySDR")
-		kwargs = {"driver": "hackrf"}
-		self._hackrf_device = soapysdr.Device(kwargs)
-		self._hackrf_stream = self._hackrf_device.setupStream(
-			soapysdr.SOAPY_SDR_RX,
-			soapysdr.SOAPY_SDR_CF32,
-		)
-		self._hackrf_device.activateStream(self._hackrf_stream)
+		try:
+			soapysdr = importlib.import_module("SoapySDR")
+			kwargs = {"driver": "hackrf"}
+			try:
+				self._hackrf_device = soapysdr.Device(kwargs)
+			except Exception as device_err:
+				raise RuntimeError(
+					f"Failed to open HackRF device. Ensure device is connected and drivers are installed. Error: {device_err}"
+				) from device_err
+			
+			try:
+				self._hackrf_stream = self._hackrf_device.setupStream(
+					soapysdr.SOAPY_SDR_RX,
+					soapysdr.SOAPY_SDR_CF32,
+				)
+				self._hackrf_device.activateStream(self._hackrf_stream)
+			except Exception as stream_err:
+				raise RuntimeError(
+					f"Failed to setup HackRF stream. Error: {stream_err}"
+				) from stream_err
+		except ImportError as e:
+			raise RuntimeError(
+				f"SoapySDR module not installed. Install with: pip install SoapySDR. Error: {e}"
+			) from e
+		except Exception as e:
+			raise RuntimeError(f"Failed to initialize HackRF device: {e}") from e
 
 	def _read_hackrf_samples(self, num_samples: int, sample_rate: float, center_freq: float) -> np.ndarray:
-		soapysdr = importlib.import_module("SoapySDR")
-		self._hackrf_device.setSampleRate(soapysdr.SOAPY_SDR_RX, 0, sample_rate)
-		self._hackrf_device.setFrequency(soapysdr.SOAPY_SDR_RX, 0, center_freq)
-		buff = np.empty(num_samples, np.complex64)
-		result = self._hackrf_device.readStream(self._hackrf_stream, [buff], num_samples)
-		if result.ret <= 0:
-			raise RuntimeError(f"HackRF readStream returned {result.ret}")
-		return buff[: result.ret].copy()
+		try:
+			soapysdr = importlib.import_module("SoapySDR")
+			self._hackrf_device.setSampleRate(soapysdr.SOAPY_SDR_RX, 0, sample_rate)  # type: ignore
+			self._hackrf_device.setFrequency(soapysdr.SOAPY_SDR_RX, 0, center_freq)  # type: ignore
+			buff = np.empty(num_samples, np.complex64)
+			result = self._hackrf_device.readStream(self._hackrf_stream, [buff], num_samples)  # type: ignore
+			if result.ret <= 0:
+				raise RuntimeError(f"HackRF readStream returned {result.ret}")
+			return buff[: result.ret].copy()
+		except Exception as e:
+			if isinstance(e, RuntimeError):
+				raise
+			raise RuntimeError(f"HackRF sample read failed: {e}") from e
 
 
 class AppState:
@@ -385,11 +695,15 @@ class AppState:
 
 		self.modulation_mode = "None"
 		self.morse_enabled = False
+		self.bandwidth_hz = 0.0  # 0 = no filtering
+		self.noise_blanker = False
+		self.ppm_correction = 0.0  # Frequency correction in parts-per-million
 		self.signal_strength_db = -120.0
 		self.signal_detected = False
 		self.active_source = "Simulated"
 		self.source_notice: Optional[str] = None
 		self.waterfall_settings = WaterfallSettings()
+		self.raw_samples: Optional[np.ndarray] = None  # Latest raw IQ samples for recording
 
 	def _resize_buffers(self) -> None:
 		self.waveform_data = np.zeros(self.fft_size, dtype=np.float32)
@@ -406,6 +720,10 @@ class AppState:
 		max_db: Optional[float] = None,
 		squelch_db: Optional[float] = None,
 		morse_enabled: Optional[bool] = None,
+		bandwidth_hz: Optional[float] = None,
+		noise_blanker: Optional[bool] = None,
+		noise_blanker_threshold: Optional[float] = None,
+		ppm_correction: Optional[float] = None,
 	) -> None:
 		if frequency_mhz is not None:
 			self.center_freq = max(0.0, float(frequency_mhz) * 1_000_000.0)
@@ -429,6 +747,17 @@ class AppState:
 			self.demodulator.set_squelch(float(squelch_db))
 		if morse_enabled is not None:
 			self.morse_enabled = bool(morse_enabled)
+		if bandwidth_hz is not None:
+			self.bandwidth_hz = max(0.0, float(bandwidth_hz))
+			self.demodulator.set_bandwidth(self.bandwidth_hz)
+		if noise_blanker is not None:
+			self.noise_blanker = bool(noise_blanker)
+			threshold = float(noise_blanker_threshold) if noise_blanker_threshold is not None else self.demodulator.noise_blanker_threshold
+			self.demodulator.set_noise_blanker(self.noise_blanker, threshold)
+		if noise_blanker_threshold is not None and noise_blanker is None:
+			self.demodulator.set_noise_blanker(self.noise_blanker, float(noise_blanker_threshold))
+		if ppm_correction is not None:
+			self.ppm_correction = float(ppm_correction)
 
 		if self.waterfall_settings.min_db >= self.waterfall_settings.max_db:
 			self.waterfall_settings.max_db = self.waterfall_settings.min_db + 1.0
@@ -467,14 +796,36 @@ class AppState:
 			self.source_notice = None
 			samples = self.generator.generate_samples(self.fft_size)
 
-		self.signal_strength_db = self.demodulator.signal_strength_db(samples)
-		self.signal_detected = self.demodulator.detect_signal(samples)
+		# Store raw samples for IQ recording before any processing
+		self.raw_samples = samples.copy()
+
+		# Apply PPM correction offset to effective center frequency
+		effective_freq = self.center_freq * (1.0 + self.ppm_correction / 1_000_000.0)
+		if self.ppm_correction != 0.0 and self.sdr.is_connected:
+			# Shift by PPM offset in frequency domain
+			try:
+				freq_shift_hz = effective_freq - self.center_freq
+				t = np.arange(len(samples)) / self.sample_rate
+				shift = np.exp(-2j * np.pi * freq_shift_hz * t).astype(np.complex64)
+				if np.iscomplexobj(samples):
+					samples = (samples * shift).astype(np.complex64)
+			except Exception:
+				pass
+
+		# Apply noise blanker before bandwidth filter
+		samples = self.demodulator.apply_noise_blanker(samples)
+
+		# Apply bandwidth filter before processing
+		filtered_samples = self.demodulator.apply_bandwidth_filter(samples, self.sample_rate)
+
+		self.signal_strength_db = self.demodulator.signal_strength_db(filtered_samples)
+		self.signal_detected = self.demodulator.detect_signal(filtered_samples)
 
 		if self.morse_enabled and self.modulation_mode.lower() == "cw":
-			env = self.demodulator.demodulate_cw(samples)
+			env = self.demodulator.demodulate_cw(filtered_samples)
 			self.morse_decoder.process_samples(env)
 
-		fft_db = compute_fft_db(samples, self.fft_size)
+		fft_db = compute_fft_db(filtered_samples, self.fft_size)
 		processed = self.waterfall_settings.apply_processing(fft_db)
 		self.waveform_data = processed.astype(np.float32)
 		self.waterfall_data = np.roll(self.waterfall_data, 1, axis=0)
@@ -509,9 +860,82 @@ class AppState:
 			"meshtastic_devices": self.detector.detect_devices(),
 			"sdr_devices": self.sdr.detect_devices(),
 			"connected_sdr_id": connected_id,
+			"bandwidth_hz": self.bandwidth_hz,
+			"noise_blanker": self.noise_blanker,
+			"noise_blanker_threshold": self.demodulator.noise_blanker_threshold,
+			"ppm_correction": self.ppm_correction,
+			"squelch_db": self.demodulator.squelch_db,
 		}
 
 
 def bands_as_dicts() -> list[dict[str, object]]:
 	return [asdict(band) for band in BANDS]
+
+
+class FrequencyScanner:
+	"""Steps through a frequency range, pausing when a signal is detected."""
+
+	def __init__(self) -> None:
+		self.active = False
+		self.start_hz = 88_000_000.0
+		self.stop_hz = 108_000_000.0
+		self.step_hz = 100_000.0
+		self.dwell_ms = 200
+		self.pause_on_signal = True
+		self.current_freq_hz = 88_000_000.0
+		self._last_step_time = 0.0
+		self._signal_paused = False
+
+	def start(
+		self,
+		start_hz: float,
+		stop_hz: float,
+		step_hz: float = 100_000.0,
+		dwell_ms: int = 200,
+		pause_on_signal: bool = True,
+	) -> None:
+		self.start_hz = float(start_hz)
+		self.stop_hz = float(stop_hz)
+		self.step_hz = abs(float(step_hz))
+		self.dwell_ms = max(50, int(dwell_ms))
+		self.pause_on_signal = bool(pause_on_signal)
+		self.current_freq_hz = self.start_hz
+		self._last_step_time = time.monotonic()
+		self._signal_paused = False
+		self.active = True
+
+	def stop(self) -> None:
+		self.active = False
+		self._signal_paused = False
+
+	def update(self, state: "AppState") -> None:
+		"""Advance to next frequency when dwell elapses. Call inside state.lock."""
+		if not self.active:
+			return
+		now = time.monotonic()
+		if self.pause_on_signal and state.signal_detected:
+			self._last_step_time = now  # keep resetting dwell while signal present
+			self._signal_paused = True
+			return
+		self._signal_paused = False
+		if now - self._last_step_time < self.dwell_ms / 1000.0:
+			return
+		self.current_freq_hz += self.step_hz
+		if self.current_freq_hz > self.stop_hz:
+			self.current_freq_hz = self.start_hz
+		state.center_freq = self.current_freq_hz
+		state.generator.center_freq = self.current_freq_hz
+		self._last_step_time = now
+
+	def get_status(self) -> dict[str, object]:
+		return {
+			"active": self.active,
+			"current_freq_hz": self.current_freq_hz,
+			"start_hz": self.start_hz,
+			"stop_hz": self.stop_hz,
+			"step_hz": self.step_hz,
+			"dwell_ms": self.dwell_ms,
+			"pause_on_signal": self.pause_on_signal,
+			"signal_paused": self._signal_paused,
+		}
 

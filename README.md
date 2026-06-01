@@ -20,13 +20,20 @@ launch_gui.bat
 ## What Is Implemented
 
 - Universal Python launcher with mode selection
-- Web SDR interface served from Flask
+- Web SDR interface served from Flask with modern UI
+- **Dark mode** toggle for comfortable night operation
+- **Band preset search** with real-time filtering
 - Simulated IQ signal generation
 - FFT + waterfall + waveform processing
 - CW envelope decoding with Morse text extraction
-- Band presets API and UI
+- Band presets API and UI with center frequency tuning
 - Meshtastic USB detection via serial ports (VID/product matching)
 - SDR management endpoints for scan/connect/disconnect
+- **Connection status indicator** showing active SDR device
+- **Log message display** with filtering (debug, info, warning, error)
+- **Input validation** with error messages for invalid settings
+- **Server-side logging** to persistent files with automatic rotation
+- **Sample rate presets** optimized for common SDR hardware
 
 ## Project Layout
 
@@ -37,7 +44,21 @@ launch_gui.bat
 - `waverider_common.py`: shared runtime state, DSP, bands, Morse decoder
 - `launch.bat`: Windows launcher (passes arguments to `run.py`)
 - `launch_gui.bat`: Windows native GUI launcher (Tkinter)
-- `templates/index.html`: web dashboard
+- `templates/index.html`: web dashboard with modern UI
+- `logs/`: server-side log files (auto-created on first run)
+
+## Web Interface Features
+
+The modern web dashboard includes:
+
+- **Theme Toggle**: Dark mode (default) or light mode, saved to browser
+- **Band Search**: Real-time search through 40+ frequency bands
+- **Center Tuner**: One-click button to jump to selected band's center frequency
+- **Connection Status**: Live display of active SDR device, sample rate, and frequency
+- **Log Viewer**: Filterable message display (all, debug, info, warning, error)
+- **Input Validation**: Errors displayed immediately for invalid frequency/sample rate/FFT size
+- **Sample Rate Presets**: 2.4M, 2.048M, 1.2M, 1.024M, 960k, 500k
+- **Auto-rotating Logs**: Server writes to persistent log files with automatic rotation at 5MB
 
 ## Download
 
@@ -143,4 +164,38 @@ Python entrypoints are the runtime and packaging source of truth for this reposi
 - `POST /api/connect_sdr` with `{ "device_id": "..." }`: marks selected SDR device as active source
 - `POST /api/disconnect_sdr`: clears active SDR source
 - `GET /api/status`: includes source label, Meshtastic devices, SDR devices, and signal telemetry
+
+## Recording APIs
+
+- `POST /api/record/start`: starts WAV audio recording into `recordings/`
+- `POST /api/record/stop`: stops WAV recording and finalizes file
+- `GET /api/record/status`: returns recording state, duration, and estimated size
+- `POST /api/iq/start`: starts raw IQ recording (`.cf32`) with sample rate and center frequency metadata in filename
+- `POST /api/iq/stop`: stops IQ recording
+- `GET /api/iq/status`: returns IQ recording state and counters
+
+## Signal History API
+
+- `GET /api/signal_history`: returns rolling signal strength history for the UI sparkline
+	- Response shape: `{ "history": [[t_seconds, signal_db], ...], "max_points": 300 }`
+
+## Frequency Scanner APIs
+
+- `POST /api/scan/start`: starts scan mode
+	- Body: `{ "start_hz": 88000000, "stop_hz": 108000000, "step_hz": 100000, "dwell_ms": 200, "pause_on_signal": true }`
+- `POST /api/scan/stop`: stops scan mode
+- `GET /api/scan/status`: returns scanner state and current frequency
+
+## TCP Remote Control
+
+WaveRider exposes a local TCP control socket on `127.0.0.1:7356` using a GQRX-style command set.
+
+Supported commands:
+
+- `F` / `F <hz>`: get or set center frequency
+- `M` / `M <mode>`: get or set modulation (`AM`, `FM`, `USB`, `LSB`, `CW`, `NONE`)
+- `L SQUELCH` / `L SQUELCH <db>`: get or set squelch level
+- `P` / `P <ppm>`: get or set PPM correction
+- `R` or `STATUS`: return full JSON status
+- `Q` or `QUIT`: close the connection
 
