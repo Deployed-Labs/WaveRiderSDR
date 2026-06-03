@@ -18,6 +18,16 @@ from typing import Any, cast
 import numpy as np
 from flask import Flask, jsonify, render_template, request
 
+try:
+    import meshtastic.serial_interface as meshtastic_serial_interface  # type: ignore[import-not-found]
+except Exception:
+    meshtastic_serial_interface: Any = None
+
+try:
+    from pubsub import pub as meshtastic_pub  # type: ignore[import-not-found]
+except Exception:
+    meshtastic_pub: Any = None
+
 from waverider_common import AppState, FrequencyScanner, bands_as_dicts, run_startup_preflight
 
 
@@ -222,6 +232,192 @@ class IQRecorder:
             }
 
 
+class MeshtasticChatService:
+    """Optional Meshtastic serial integration for node info and chat."""
+
+    def __init__(self) -> None:
+        self.interface: object | None = None
+        self.connected = False
+        self.connected_port = ""
+        self._lock = threading.Lock()
+        self._messages: deque[dict[str, str]] = deque(maxlen=200)
+        self._subscribed = False
+
+    def available(self) -> bool:
+        return meshtastic_serial_interface is not None
+
+    def connect(self, port: str = "") -> tuple[bool, str]:
+        if meshtastic_serial_interface is None:
+            return False, "Meshtastic Python API not installed. Install with: pip install meshtastic"
+        self.disconnect()
+        try:
+            kwargs: dict[str, object] = {}
+            if port:
+                kwargs["devPath"] = port
+            self.interface = meshtastic_serial_interface.SerialInterface(**kwargs)
+            self.connected = True
+            self.connected_port = port
+            self._subscribe_receive()
+            return True, f"Connected to Meshtastic {port or 'auto-selected port'}."
+        except Exception as exc:
+            self.interface = None
+            self.connected = False
+            self.connected_port = ""
+            return False, f"Meshtastic connect failed: {exc}"
+
+    def disconnect(self) -> None:
+        with self._lock:
+            iface = self.interface
+            self.interface = None
+            self.connected = False
+            self.connected_port = ""
+        self._unsubscribe_receive()
+        if iface is not None:
+            try:
+                close = getattr(iface, "close", None)
+                if callable(close):
+                    close()
+            except Exception:
+                pass
+
+    def _subscribe_receive(self) -> None:
+        if meshtastic_pub is None or self._subscribed:
+            return
+        try:
+            meshtastic_pub.subscribe(self._on_receive_packet, "meshtastic.receive")
+            self._subscribed = True
+        except Exception:
+            self._subscribed = False
+
+    def _unsubscribe_receive(self) -> None:
+        if meshtastic_pub is None or not self._subscribed:
+            return
+        try:
+            meshtastic_pub.unsubscribe(self._on_receive_packet, "meshtastic.receive")
+        except Exception:
+            pass
+        self._subscribed = False
+
+    def _on_receive_packet(self, packet: object, interface: object | None = None) -> None:
+        if interface is not None and self.interface is not None and interface is not self.interface:
+            return
+        if not isinstance(packet, dict):
+            return
+        packet_dict = cast(dict[str, Any], packet)
+        raw_decoded = packet_dict.get("decoded")
+        decoded: dict[str, Any] = cast(dict[str, Any], raw_decoded) if isinstance(raw_decoded, dict) else {}
+        text = decoded.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        from_id = str(packet_dict.get("fromId") or packet_dict.get("from") or "peer")
+        self._append_message("rx", from_id, text.strip())
+
+    def _append_message(self, direction: str, peer: str, text: str) -> None:
+        entry = {
+            "timestamp": time.strftime("%H:%M:%S"),
+            "direction": direction,
+            "peer": peer,
+            "text": text,
+        }
+        with self._lock:
+            self._messages.append(entry)
+
+    def send_text(self, text: str, target_mode: str = "broadcast", target_node: str = "", channel_index: int = 0) -> tuple[bool, str]:
+        message = text.strip()
+        if not message:
+            return False, "Message is empty."
+        if not self.connected or self.interface is None:
+            return False, "Meshtastic is not connected."
+
+        destination = target_node.strip() if target_mode == "direct" else ""
+        channel = max(0, int(channel_index))
+        try:
+            send_fn = getattr(self.interface, "sendText", None)
+            if not callable(send_fn):
+                return False, "Connected interface does not support sendText()."
+            if destination:
+                try:
+                    send_fn(message, destinationId=destination, channelIndex=channel)
+                except TypeError:
+                    send_fn(message)
+                self._append_message("tx", destination, message)
+            else:
+                try:
+                    send_fn(message, channelIndex=channel)
+                except TypeError:
+                    send_fn(message)
+                self._append_message("tx", f"broadcast(ch:{channel})", message)
+            return True, "Message sent."
+        except Exception as exc:
+            return False, f"Send failed: {exc}"
+
+    def get_local_node_info(self) -> dict[str, str]:
+        if not self.connected or self.interface is None:
+            return {
+                "node_id": "Not connected",
+                "short_name": "-",
+                "long_name": "-",
+                "firmware": "-",
+                "port": "-",
+            }
+
+        node_id = "unknown"
+        short_name = "unknown"
+        long_name = "unknown"
+        firmware = "unknown"
+        port = self.connected_port or "auto"
+        try:
+            my_info = getattr(self.interface, "myInfo", None)
+            if isinstance(my_info, dict):
+                info_dict = cast(dict[str, Any], my_info)
+                node_id = str(info_dict.get("myNodeNum", node_id))
+                user = info_dict.get("user")
+                if isinstance(user, dict):
+                    user_dict = cast(dict[str, Any], user)
+                    short_name = str(user_dict.get("shortName", short_name))
+                    long_name = str(user_dict.get("longName", long_name))
+                firmware = str(info_dict.get("firmwareVersion", firmware))
+        except Exception:
+            pass
+        return {
+            "node_id": node_id,
+            "short_name": short_name,
+            "long_name": long_name,
+            "firmware": firmware,
+            "port": port,
+        }
+
+    def get_known_nodes(self) -> list[dict[str, str]]:
+        if not self.connected or self.interface is None:
+            return []
+        nodes_obj = getattr(self.interface, "nodes", None)
+        if not isinstance(nodes_obj, dict):
+            return []
+        nodes_dict = cast(dict[Any, Any], nodes_obj)
+        nodes: list[dict[str, str]] = []
+        for node_id, payload in nodes_dict.items():
+            if not isinstance(payload, dict):
+                continue
+            payload_dict = cast(dict[str, Any], payload)
+            user = payload_dict.get("user")
+            user_dict = cast(dict[str, Any], user) if isinstance(user, dict) else {}
+            resolved_id = str(user_dict.get("id", node_id))
+            nodes.append(
+                {
+                    "id": resolved_id,
+                    "short_name": str(user_dict.get("shortName", "")),
+                    "long_name": str(user_dict.get("longName", "")),
+                }
+            )
+        return nodes
+
+    def pop_messages(self) -> list[dict[str, str]]:
+        with self._lock:
+            items = list(self._messages)
+            self._messages.clear()
+            return items
+
+
 class SDRAutoReconnect:
     """Handles automatic reconnection to SDR devices."""
     def __init__(self, logs: LogManager):
@@ -381,7 +577,7 @@ def _validate_ppm(ppm: Any) -> tuple[bool, str]:
         return False, "PPM correction must be a number"
 
 
-def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder, iq_recorder: IQRecorder, signal_history: SignalHistory, scanner: FrequencyScanner) -> Flask:
+def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder, iq_recorder: IQRecorder, signal_history: SignalHistory, scanner: FrequencyScanner, meshtastic: MeshtasticChatService) -> Flask:
     app = Flask(__name__, template_folder="templates")
 
     @app.get("/")
@@ -397,6 +593,60 @@ def create_app(state: AppState, logs: LogManager, recorder: AudioRecorder, iq_re
     def api_status():
         with state.lock:
             return jsonify(state.get_status())
+
+    @app.get("/api/meshtastic/status")
+    def api_meshtastic_status():
+        return jsonify(
+            {
+                "available": meshtastic.available(),
+                "connected": meshtastic.connected,
+                "connected_port": meshtastic.connected_port,
+                "local_node": meshtastic.get_local_node_info(),
+                "known_nodes": meshtastic.get_known_nodes(),
+                "messages": meshtastic.pop_messages(),
+            }
+        )
+
+    @app.post("/api/meshtastic/connect")
+    def api_meshtastic_connect():
+        payload = _json_payload()
+        port = str(payload.get("port") or "")
+        ok, msg = meshtastic.connect(port)
+        logs.add("info" if ok else "warning", msg)
+        code = 200 if ok else 400
+        return jsonify({"ok": ok, "message": msg}), code
+
+    @app.post("/api/meshtastic/disconnect")
+    def api_meshtastic_disconnect():
+        meshtastic.disconnect()
+        logs.add("info", "Meshtastic disconnected")
+        return jsonify({"ok": True})
+
+    @app.post("/api/meshtastic/send")
+    def api_meshtastic_send():
+        payload = _json_payload()
+        text = str(payload.get("text") or "")
+        target_mode = str(payload.get("target_mode") or "broadcast").lower()
+        target_node = str(payload.get("target_node") or "")
+        try:
+            channel_index = int(payload.get("channel_index", 0))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "channel_index must be an integer"}), 400
+
+        if target_mode not in {"broadcast", "direct"}:
+            return jsonify({"ok": False, "error": "target_mode must be 'broadcast' or 'direct'"}), 400
+        if target_mode == "direct" and not target_node.strip():
+            return jsonify({"ok": False, "error": "target_node is required in direct mode"}), 400
+
+        ok, msg = meshtastic.send_text(
+            text=text,
+            target_mode=target_mode,
+            target_node=target_node,
+            channel_index=channel_index,
+        )
+        logs.add("info" if ok else "warning", f"Meshtastic send ({target_mode}): {msg}")
+        code = 200 if ok else 400
+        return jsonify({"ok": ok, "message": msg}), code
 
     @app.post("/api/start")
     def api_start():
@@ -872,12 +1122,13 @@ def run_web(host: str = "0.0.0.0", port: int = 5000, open_browser: bool = False)
     tcp_control = TCPControlServer(state, logs)
     signal_history = SignalHistory()
     scanner = FrequencyScanner()
+    meshtastic = MeshtasticChatService()
     
     if preflight.short_notice():
         state.source_notice = preflight.short_notice()
         logs.add("warning", f"Startup notice: {preflight.short_notice()}")
 
-    app = create_app(state, logs, recorder, iq_recorder, signal_history, scanner)
+    app = create_app(state, logs, recorder, iq_recorder, signal_history, scanner, meshtastic)
 
     stop_event = threading.Event()
     tick_thread = threading.Thread(target=_run_tick_loop, args=(state, stop_event, auto_reconnect, recorder, iq_recorder, signal_history, scanner), daemon=True)
@@ -899,6 +1150,7 @@ def run_web(host: str = "0.0.0.0", port: int = 5000, open_browser: bool = False)
     finally:
         stop_event.set()
         tcp_control.stop()
+        meshtastic.disconnect()
 
 
 def _build_parser() -> argparse.ArgumentParser:

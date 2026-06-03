@@ -116,23 +116,58 @@ class MeshtasticChatClient:
         with self._lock:
             self._pending_messages.append(line)
 
-    def send_text(self, text: str) -> tuple[bool, str]:
+    def send_text(self, text: str, target_mode: str = "broadcast", target_node: str = "", channel_index: int = 0) -> tuple[bool, str]:
         message = text.strip()
         if not message:
             return False, "Message is empty."
         if not self.connected or self.interface is None:
             return False, "Meshtastic is not connected."
+        destination = target_node.strip() if target_mode == "direct" else ""
+        channel = max(0, int(channel_index))
         try:
             send_fn = getattr(self.interface, "sendText", None)
             if not callable(send_fn):
                 return False, "Connected interface does not support sendText()."
-            send_fn(message)
+            if destination:
+                try:
+                    send_fn(message, destinationId=destination, channelIndex=channel)
+                except TypeError:
+                    send_fn(message)
+            else:
+                try:
+                    send_fn(message, channelIndex=channel)
+                except TypeError:
+                    send_fn(message)
             timestamp = time.strftime("%H:%M:%S")
             with self._lock:
-                self._pending_messages.append(f"[{timestamp}] TX me: {message}")
+                peer = destination if destination else f"broadcast(ch:{channel})"
+                self._pending_messages.append(f"[{timestamp}] TX {peer}: {message}")
             return True, "Message sent."
         except Exception as exc:
             return False, f"Send failed: {exc}"
+
+    def get_known_nodes(self) -> list[dict[str, str]]:
+        if not self.connected or self.interface is None:
+            return []
+        nodes_obj = getattr(self.interface, "nodes", None)
+        if not isinstance(nodes_obj, dict):
+            return []
+        nodes_dict = cast(dict[Any, Any], nodes_obj)
+        result: list[dict[str, str]] = []
+        for node_id, payload in nodes_dict.items():
+            if not isinstance(payload, dict):
+                continue
+            payload_dict = cast(dict[str, Any], payload)
+            user = payload_dict.get("user")
+            user_dict = cast(dict[str, Any], user) if isinstance(user, dict) else {}
+            result.append(
+                {
+                    "id": str(user_dict.get("id", node_id)),
+                    "short_name": str(user_dict.get("shortName", "")),
+                    "long_name": str(user_dict.get("longName", "")),
+                }
+            )
+        return result
 
     def get_local_node_info(self) -> dict[str, str]:
         if not self.connected or self.interface is None:
@@ -666,8 +701,32 @@ class WaveRiderTkGui:
         mesh_tab.rowconfigure(12, weight=1)
 
         self.mesh_chat_input_var = tk.StringVar(value="")
-        ttk.Entry(mesh_tab, textvariable=self.mesh_chat_input_var).grid(row=13, column=0, sticky="ew", padx=12, pady=(0, 12))
-        ttk.Button(mesh_tab, text="Send", command=self._send_meshtastic_chat).grid(row=13, column=1, sticky="e", padx=12, pady=(0, 12))
+        ttk.Entry(mesh_tab, textvariable=self.mesh_chat_input_var).grid(row=13, column=0, sticky="ew", padx=12, pady=(0, 8))
+        ttk.Button(mesh_tab, text="Send", command=self._send_meshtastic_chat).grid(row=13, column=1, sticky="e", padx=12, pady=(0, 8))
+
+        target_row = ttk.Frame(mesh_tab, style="Card.TFrame")
+        target_row.grid(row=14, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 12))
+        target_row.columnconfigure(0, weight=0)
+        target_row.columnconfigure(1, weight=1)
+        target_row.columnconfigure(2, weight=0)
+
+        self.mesh_target_mode_var = tk.StringVar(value="broadcast")
+        ttk.Label(target_row, text="Target", style="Muted.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Combobox(
+            target_row,
+            textvariable=self.mesh_target_mode_var,
+            values=["broadcast", "direct"],
+            state="readonly",
+            width=12,
+        ).grid(row=0, column=1, sticky="w")
+
+        self.mesh_target_node_var = tk.StringVar(value="")
+        self.mesh_target_node_combo = ttk.Combobox(target_row, textvariable=self.mesh_target_node_var, state="normal", width=24)
+        self.mesh_target_node_combo.grid(row=0, column=2, sticky="e", padx=(8, 6))
+
+        self.mesh_channel_var = tk.StringVar(value="0")
+        ttk.Label(target_row, text="Channel", style="Muted.TLabel").grid(row=0, column=3, sticky="e", padx=(0, 6))
+        ttk.Entry(target_row, textvariable=self.mesh_channel_var, width=6).grid(row=0, column=4, sticky="e")
 
         # Signal meter (at bottom of all tabs)
         meter_frame = ttk.Frame(controls_card, style="Card.TFrame")
@@ -1030,7 +1089,24 @@ class WaveRiderTkGui:
 
     def _send_meshtastic_chat(self) -> None:
         message = self.mesh_chat_input_var.get().strip()
-        ok, msg = self.mesh_client.send_text(message)
+        target_mode = self.mesh_target_mode_var.get().strip().lower()
+        target_node = self.mesh_target_node_var.get().strip()
+        if target_node:
+            target_node = target_node.split()[0]
+        try:
+            channel_index = int(self.mesh_channel_var.get())
+        except ValueError:
+            self.notice_var.set("Channel must be an integer (0+).")
+            return
+        if target_mode == "direct" and not target_node:
+            self.notice_var.set("Choose or enter a target node for direct messages.")
+            return
+        ok, msg = self.mesh_client.send_text(
+            message,
+            target_mode=target_mode,
+            target_node=target_node,
+            channel_index=channel_index,
+        )
         if ok:
             self.mesh_chat_input_var.set("")
         self.notice_var.set(msg)
@@ -1055,6 +1131,17 @@ class WaveRiderTkGui:
         self.mesh_long_var.set(f"Long Name: {node_info.get('long_name', '-')}")
         self.mesh_fw_var.set(f"Firmware: {node_info.get('firmware', '-')}")
         self.mesh_port_var.set(f"Port: {node_info.get('port', '-')}")
+
+        known_nodes = self.mesh_client.get_known_nodes()
+        node_values = [
+            f"{node.get('id', '')} {node.get('short_name', '')}".strip()
+            for node in known_nodes
+            if node.get("id")
+        ]
+        if list(self.mesh_target_node_combo["values"]) != node_values:
+            self.mesh_target_node_combo["values"] = node_values
+            if node_values and not self.mesh_target_node_var.get().strip():
+                self.mesh_target_node_var.set(node_values[0])
 
         for line in self.mesh_client.pop_pending_messages():
             self._append_meshtastic_chat_line(line)

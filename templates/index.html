@@ -240,6 +240,48 @@
       transform: translateY(0);
     }
 
+    .mesh-status {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .mesh-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      margin-bottom: 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .mesh-chat-log {
+      height: 180px;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      padding: 8px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+    }
+
+    .mesh-chat-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .mesh-target-row {
+      display: grid;
+      grid-template-columns: 140px 1fr 110px;
+      gap: 8px;
+    }
+
     .theme-toggle {
       background: linear-gradient(135deg, #2a3f5f, #1a2f4f);
       border: 1px solid var(--line);
@@ -607,6 +649,47 @@
       </div>
     </section>
 
+    <section class="card">
+      <div class="card-header">
+        <h2>Meshtastic</h2>
+      </div>
+      <div class="pane">
+        <div class="row" style="margin-bottom:10px;">
+          <div class="control">
+            <label>Port</label>
+            <select id="meshPortSelect"></select>
+          </div>
+          <div class="control"><button id="meshRefreshPortsBtn">Refresh Ports</button></div>
+          <div class="control"><button id="meshConnectBtn" class="btn-primary">Connect</button></div>
+          <div class="control"><button id="meshDisconnectBtn" class="btn-danger">Disconnect</button></div>
+        </div>
+
+        <div id="meshStatus" class="mesh-status">Status: not connected</div>
+        <div class="mesh-grid">
+          <div id="meshNodeId">Node ID: -</div>
+          <div id="meshNodeShort">Short Name: -</div>
+          <div id="meshNodeLong">Long Name: -</div>
+          <div id="meshNodeFirmware">Firmware: -</div>
+          <div id="meshNodePort">Port: -</div>
+          <div id="meshKnownCount">Known Nodes: 0</div>
+        </div>
+
+        <div id="meshChatLog" class="mesh-chat-log"></div>
+        <div class="mesh-chat-row">
+          <input id="meshChatInput" type="text" placeholder="Type a Meshtastic message..." />
+          <button id="meshSendBtn" class="btn-primary">Send</button>
+        </div>
+        <div class="mesh-target-row">
+          <select id="meshTargetMode">
+            <option value="broadcast">Broadcast</option>
+            <option value="direct">Direct</option>
+          </select>
+          <select id="meshTargetNode"></select>
+          <input id="meshChannelIndex" type="number" min="0" step="1" value="0" title="Channel index" />
+        </div>
+      </div>
+    </section>
+
     <section class="card grid">
       <div class="pane">
         <canvas id="waveform" width="1100" height="180"></canvas>
@@ -731,6 +814,24 @@
       scanBadge: document.getElementById("scanBadge"),
       scanProgress: document.getElementById("scanProgress"),
       scanProgressFill: document.getElementById("scanProgressFill"),
+      // Meshtastic controls
+      meshPortSelect: document.getElementById("meshPortSelect"),
+      meshRefreshPortsBtn: document.getElementById("meshRefreshPortsBtn"),
+      meshConnectBtn: document.getElementById("meshConnectBtn"),
+      meshDisconnectBtn: document.getElementById("meshDisconnectBtn"),
+      meshStatus: document.getElementById("meshStatus"),
+      meshNodeId: document.getElementById("meshNodeId"),
+      meshNodeShort: document.getElementById("meshNodeShort"),
+      meshNodeLong: document.getElementById("meshNodeLong"),
+      meshNodeFirmware: document.getElementById("meshNodeFirmware"),
+      meshNodePort: document.getElementById("meshNodePort"),
+      meshKnownCount: document.getElementById("meshKnownCount"),
+      meshChatLog: document.getElementById("meshChatLog"),
+      meshChatInput: document.getElementById("meshChatInput"),
+      meshSendBtn: document.getElementById("meshSendBtn"),
+      meshTargetMode: document.getElementById("meshTargetMode"),
+      meshTargetNode: document.getElementById("meshTargetNode"),
+      meshChannelIndex: document.getElementById("meshChannelIndex"),
     };
 
     function showToast(message, level = "info") {
@@ -840,6 +941,74 @@
         controls.connectionInfo.style.display = "block";
       } else if (isConnected) {
         controls.connectionInfo.style.display = "block";
+      }
+    }
+
+    // ========== Meshtastic ==========
+    function appendMeshChatLine(line) {
+      if (!controls.meshChatLog) return;
+      controls.meshChatLog.textContent += `${line}\n`;
+      controls.meshChatLog.scrollTop = controls.meshChatLog.scrollHeight;
+    }
+
+    function populateMeshtasticPorts(devices) {
+      const selected = controls.meshPortSelect.value;
+      controls.meshPortSelect.innerHTML = `<option value="">Auto-select</option>`;
+      for (const d of devices || []) {
+        if (!d.port) continue;
+        const opt = document.createElement("option");
+        opt.value = d.port;
+        opt.textContent = d.port;
+        controls.meshPortSelect.appendChild(opt);
+      }
+      if (selected && Array.from(controls.meshPortSelect.options).some(o => o.value === selected)) {
+        controls.meshPortSelect.value = selected;
+      }
+    }
+
+    function populateMeshtasticTargets(nodes) {
+      const selected = controls.meshTargetNode.value;
+      controls.meshTargetNode.innerHTML = `<option value="">Select node for direct message...</option>`;
+      for (const n of nodes || []) {
+        if (!n.id) continue;
+        const opt = document.createElement("option");
+        opt.value = n.id;
+        const label = [n.id, n.short_name || n.long_name || ""].filter(Boolean).join(" ");
+        opt.textContent = label;
+        controls.meshTargetNode.appendChild(opt);
+      }
+      if (selected && Array.from(controls.meshTargetNode.options).some(o => o.value === selected)) {
+        controls.meshTargetNode.value = selected;
+      }
+    }
+
+    async function refreshMeshtastic() {
+      const status = await api("/api/status");
+      const devices = status.meshtastic_devices || [];
+      populateMeshtasticPorts(devices);
+
+      const ms = await api("/api/meshtastic/status");
+      if (ms.available === false) {
+        controls.meshStatus.textContent = "Status: unavailable (install meshtastic package)";
+      } else {
+        controls.meshStatus.textContent = `Status: ${ms.connected ? "connected" : "not connected"}`;
+      }
+
+      const node = ms.local_node || {};
+      controls.meshNodeId.textContent = `Node ID: ${node.node_id || "-"}`;
+      controls.meshNodeShort.textContent = `Short Name: ${node.short_name || "-"}`;
+      controls.meshNodeLong.textContent = `Long Name: ${node.long_name || "-"}`;
+      controls.meshNodeFirmware.textContent = `Firmware: ${node.firmware || "-"}`;
+      controls.meshNodePort.textContent = `Port: ${node.port || "-"}`;
+
+      const knownNodes = Array.isArray(ms.known_nodes) ? ms.known_nodes : [];
+      controls.meshKnownCount.textContent = `Known Nodes: ${knownNodes.length}`;
+      populateMeshtasticTargets(knownNodes);
+
+      const messages = Array.isArray(ms.messages) ? ms.messages : [];
+      for (const msg of messages) {
+        const dir = msg.direction === "tx" ? "TX" : "RX";
+        appendMeshChatLine(`[${msg.timestamp || "--:--:--"}] ${dir} ${msg.peer || "peer"}: ${msg.text || ""}`);
       }
     }
 
@@ -1293,6 +1462,62 @@
       await refreshStatus();
     });
 
+    controls.meshRefreshPortsBtn.addEventListener("click", async () => {
+      await refreshMeshtastic();
+    });
+
+    controls.meshConnectBtn.addEventListener("click", async () => {
+      const port = controls.meshPortSelect.value || "";
+      const res = await api("/api/meshtastic/connect", {
+        method: "POST",
+        body: JSON.stringify({ port }),
+      });
+      if (res.ok) {
+        addLog("info", res.message || "Meshtastic connected");
+        showToast(res.message || "Meshtastic connected");
+      } else {
+        addLog("warning", res.message || res.error || "Meshtastic connect failed");
+        showToast(res.message || res.error || "Meshtastic connect failed", "error");
+      }
+      await refreshMeshtastic();
+    });
+
+    controls.meshDisconnectBtn.addEventListener("click", async () => {
+      await api("/api/meshtastic/disconnect", { method: "POST" });
+      addLog("info", "Meshtastic disconnected");
+      await refreshMeshtastic();
+    });
+
+    controls.meshTargetMode.addEventListener("change", () => {
+      const isDirect = controls.meshTargetMode.value === "direct";
+      controls.meshTargetNode.disabled = !isDirect;
+    });
+
+    controls.meshSendBtn.addEventListener("click", async () => {
+      const text = (controls.meshChatInput.value || "").trim();
+      if (!text) {
+        showToast("Enter a message first", "error");
+        return;
+      }
+      const target_mode = controls.meshTargetMode.value;
+      const target_node = controls.meshTargetNode.value || "";
+      const channel_index = Number(controls.meshChannelIndex.value || 0);
+      if (target_mode === "direct" && !target_node) {
+        showToast("Select a target node for direct message", "error");
+        return;
+      }
+      const res = await api("/api/meshtastic/send", {
+        method: "POST",
+        body: JSON.stringify({ text, target_mode, target_node, channel_index }),
+      });
+      if (res.ok) {
+        controls.meshChatInput.value = "";
+        await refreshMeshtastic();
+      } else {
+        showToast(res.message || res.error || "Send failed", "error");
+      }
+    });
+
     [
       controls.frequency,
       controls.sampleRate,
@@ -1457,6 +1682,9 @@
       } catch (_) { /* non-critical */ }
     }
 
+    controls.meshTargetNode.disabled = controls.meshTargetMode.value !== "direct";
+    setInterval(refreshMeshtastic, 1500);
+    refreshMeshtastic();
     setInterval(refreshSparkline, 2000);
     refreshSparkline();
     updateScanStatus();
@@ -1467,7 +1695,7 @@
       setTimeout(loop, 120);
     }
 
-    Promise.all([loadBands(), refreshSdrDevices()]).then(loop);
+    Promise.all([loadBands(), refreshSdrDevices(), refreshMeshtastic()]).then(loop);
   </script>
 </body>
 </html>
