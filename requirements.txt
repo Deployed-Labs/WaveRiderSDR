@@ -5,4 +5,5 @@ pyserial>=3.5
 # Optional hardware backends (install manually as available on your platform):
 # pyrtlsdr
 # SoapySDR
+# meshtastic
 

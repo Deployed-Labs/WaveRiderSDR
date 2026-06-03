@@ -3,5 +3,16 @@
     null,
     null,
     null
-  ]
+  ],
+  "settings": {
+    "bandwidth_hz": "0",
+    "ppm_correction": "0",
+    "noise_blanker": false,
+    "noise_blanker_threshold": "3.0",
+    "scan_start_mhz": "88.0",
+    "scan_stop_mhz": "108.0",
+    "scan_step_khz": "100",
+    "scan_dwell_ms": "200",
+    "scan_pause_on_signal": true
+  }
 }

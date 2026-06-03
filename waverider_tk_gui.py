@@ -8,10 +8,21 @@ import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
-from typing import cast
+from collections import deque
+from typing import Any, cast
 import webbrowser
 
 import numpy as np
+
+try:
+    import meshtastic.serial_interface as meshtastic_serial_interface  # type: ignore[import-not-found]
+except Exception:
+    meshtastic_serial_interface: Any = None
+
+try:
+    from pubsub import pub as meshtastic_pub  # type: ignore[import-not-found]
+except Exception:
+    meshtastic_pub: Any = None
 
 _PRESETS_FILE = pathlib.Path(__file__).with_name("waverider_presets.json")
 _SDR_SETUP_FILE = pathlib.Path(__file__).with_name("SDR_SETUP.md")
@@ -20,6 +31,152 @@ _SDR_SETUP_FILE = pathlib.Path(__file__).with_name("SDR_SETUP.md")
 _WF_HEX: list[str] = [f"{i:02x}" for i in range(256)]
 
 from waverider_common import AppState, BANDS, FrequencyScanner, run_startup_preflight
+
+
+class MeshtasticChatClient:
+    """Best-effort Meshtastic serial client with lightweight chat buffering."""
+
+    def __init__(self) -> None:
+        self.interface: object | None = None
+        self.connected_port: str = ""
+        self.connected = False
+        self._lock = threading.Lock()
+        self._pending_messages: deque[str] = deque(maxlen=120)
+        self._subscribed = False
+
+    def available(self) -> bool:
+        return meshtastic_serial_interface is not None
+
+    def connect(self, port: str = "") -> tuple[bool, str]:
+        if meshtastic_serial_interface is None:
+            return False, "Meshtastic Python API not installed. Install with: pip install meshtastic"
+
+        self.disconnect()
+        try:
+            kwargs: dict[str, object] = {}
+            if port:
+                kwargs["devPath"] = port
+            self.interface = meshtastic_serial_interface.SerialInterface(**kwargs)
+            self.connected_port = port
+            self.connected = True
+            self._subscribe_receive()
+            return True, f"Connected to Meshtastic {port or 'auto-selected port'}."
+        except Exception as exc:
+            self.interface = None
+            self.connected = False
+            return False, f"Meshtastic connect failed: {exc}"
+
+    def disconnect(self) -> None:
+        with self._lock:
+            iface = self.interface
+            self.interface = None
+            self.connected = False
+            self.connected_port = ""
+        self._unsubscribe_receive()
+        if iface is not None:
+            try:
+                close = getattr(iface, "close", None)
+                if callable(close):
+                    close()
+            except Exception:
+                pass
+
+    def _subscribe_receive(self) -> None:
+        if meshtastic_pub is None or self._subscribed:
+            return
+        try:
+            meshtastic_pub.subscribe(self._on_receive_packet, "meshtastic.receive")
+            self._subscribed = True
+        except Exception:
+            self._subscribed = False
+
+    def _unsubscribe_receive(self) -> None:
+        if meshtastic_pub is None or not self._subscribed:
+            return
+        try:
+            meshtastic_pub.unsubscribe(self._on_receive_packet, "meshtastic.receive")
+        except Exception:
+            pass
+        self._subscribed = False
+
+    def _on_receive_packet(self, packet: object, interface: object | None = None) -> None:
+        if interface is not None and self.interface is not None and interface is not self.interface:
+            return
+        if not isinstance(packet, dict):
+            return
+        packet_dict = cast(dict[str, Any], packet)
+        raw_decoded = packet_dict.get("decoded")
+        decoded: dict[str, Any] = cast(dict[str, Any], raw_decoded) if isinstance(raw_decoded, dict) else {}
+        text = decoded.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        from_id = packet_dict.get("fromId") or packet_dict.get("from") or "peer"
+        timestamp = time.strftime("%H:%M:%S")
+        line = f"[{timestamp}] RX {from_id}: {text.strip()}"
+        with self._lock:
+            self._pending_messages.append(line)
+
+    def send_text(self, text: str) -> tuple[bool, str]:
+        message = text.strip()
+        if not message:
+            return False, "Message is empty."
+        if not self.connected or self.interface is None:
+            return False, "Meshtastic is not connected."
+        try:
+            send_fn = getattr(self.interface, "sendText", None)
+            if not callable(send_fn):
+                return False, "Connected interface does not support sendText()."
+            send_fn(message)
+            timestamp = time.strftime("%H:%M:%S")
+            with self._lock:
+                self._pending_messages.append(f"[{timestamp}] TX me: {message}")
+            return True, "Message sent."
+        except Exception as exc:
+            return False, f"Send failed: {exc}"
+
+    def get_local_node_info(self) -> dict[str, str]:
+        if not self.connected or self.interface is None:
+            return {
+                "node_id": "Not connected",
+                "short_name": "-",
+                "long_name": "-",
+                "firmware": "-",
+                "port": "-",
+            }
+
+        node_id = "unknown"
+        short_name = "unknown"
+        long_name = "unknown"
+        firmware = "unknown"
+        port = self.connected_port or "auto"
+
+        try:
+            my_info = getattr(self.interface, "myInfo", None)
+            if isinstance(my_info, dict):
+                info_dict = cast(dict[str, Any], my_info)
+                node_id = str(info_dict.get("myNodeNum", node_id))
+                user = info_dict.get("user")
+                if isinstance(user, dict):
+                    user_dict = cast(dict[str, Any], user)
+                    short_name = str(user_dict.get("shortName", short_name))
+                    long_name = str(user_dict.get("longName", long_name))
+                firmware = str(info_dict.get("firmwareVersion", firmware))
+        except Exception:
+            pass
+
+        return {
+            "node_id": node_id,
+            "short_name": short_name,
+            "long_name": long_name,
+            "firmware": firmware,
+            "port": port,
+        }
+
+    def pop_pending_messages(self) -> list[str]:
+        with self._lock:
+            messages = list(self._pending_messages)
+            self._pending_messages.clear()
+            return messages
 
 
 class WaveRiderTkGui:
@@ -34,6 +191,7 @@ class WaveRiderTkGui:
 
         self.state = AppState()
         self.scanner = FrequencyScanner()
+        self.mesh_client = MeshtasticChatClient()
         if startup_notice:
             self.state.source_notice = startup_notice
         # Run the signal-processing loop (FFT + hardware I/O) on a dedicated
@@ -50,6 +208,7 @@ class WaveRiderTkGui:
         self.startup_notice = startup_notice
         self.startup_missing_required = startup_missing_required
         self._saved_settings: dict[str, object] = {}
+        self._last_mesh_refresh = 0.0
         self._startup_alpha = 0.0
         self._wf_pos: int = -1  # circular-buffer write pointer; -1 = needs init
         self._load_presets()
@@ -455,6 +614,61 @@ class WaveRiderTkGui:
         self.nb_threshold_var = tk.StringVar(value="3.0")
         ttk.Entry(adv_tab, textvariable=self.nb_threshold_var).grid(row=7, column=1, sticky="ew", padx=12, pady=(2, 12))
 
+        # ============= TAB 6: MESHTASTIC =============
+        mesh_tab = ttk.Frame(self.control_tabs, style="Card.TFrame")
+        mesh_tab.columnconfigure(0, weight=1)
+        mesh_tab.columnconfigure(1, weight=1)
+        self.control_tabs.add(mesh_tab, text="Meshtastic")
+
+        ttk.Label(mesh_tab, text="Connection", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 0))
+        self.mesh_connect_var = tk.StringVar(value="")
+        self.mesh_port_combo = ttk.Combobox(mesh_tab, textvariable=self.mesh_connect_var, state="readonly")
+        self.mesh_port_combo.grid(row=1, column=0, sticky="ew", padx=12, pady=(2, 10))
+
+        mesh_btn_row = ttk.Frame(mesh_tab, style="Card.TFrame")
+        mesh_btn_row.grid(row=1, column=1, sticky="e", padx=12, pady=(2, 10))
+        ttk.Button(mesh_btn_row, text="Refresh Ports", command=self._refresh_meshtastic_ports).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(mesh_btn_row, text="Connect", command=self._connect_meshtastic).grid(row=0, column=1, padx=(0, 6))
+        ttk.Button(mesh_btn_row, text="Disconnect", command=self._disconnect_meshtastic).grid(row=0, column=2)
+
+        self.mesh_conn_status_var = tk.StringVar(value="Status: not connected")
+        ttk.Label(mesh_tab, textvariable=self.mesh_conn_status_var, style="Muted.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+
+        ttk.Separator(mesh_tab, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+
+        ttk.Label(mesh_tab, text="Connected Node", style="Body.TLabel").grid(row=4, column=0, sticky="w", padx=12)
+        self.mesh_node_var = tk.StringVar(value="Node ID: -")
+        self.mesh_short_var = tk.StringVar(value="Short Name: -")
+        self.mesh_long_var = tk.StringVar(value="Long Name: -")
+        self.mesh_fw_var = tk.StringVar(value="Firmware: -")
+        self.mesh_port_var = tk.StringVar(value="Port: -")
+        ttk.Label(mesh_tab, textvariable=self.mesh_node_var, style="Muted.TLabel").grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(2, 0))
+        ttk.Label(mesh_tab, textvariable=self.mesh_short_var, style="Muted.TLabel").grid(row=6, column=0, columnspan=2, sticky="w", padx=12)
+        ttk.Label(mesh_tab, textvariable=self.mesh_long_var, style="Muted.TLabel").grid(row=7, column=0, columnspan=2, sticky="w", padx=12)
+        ttk.Label(mesh_tab, textvariable=self.mesh_fw_var, style="Muted.TLabel").grid(row=8, column=0, columnspan=2, sticky="w", padx=12)
+        ttk.Label(mesh_tab, textvariable=self.mesh_port_var, style="Muted.TLabel").grid(row=9, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+
+        ttk.Separator(mesh_tab, orient="horizontal").grid(row=10, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+
+        ttk.Label(mesh_tab, text="Meshtastic Chat", style="Body.TLabel").grid(row=11, column=0, sticky="w", padx=12)
+        self.mesh_chat_text = tk.Text(
+            mesh_tab,
+            height=10,
+            wrap="word",
+            background=self.colors["canvas"],
+            foreground=self.colors["text"],
+            insertbackground=self.colors["text"],
+            relief="sunken",
+            bd=1,
+        )
+        self.mesh_chat_text.grid(row=12, column=0, columnspan=2, sticky="nsew", padx=12, pady=(4, 8))
+        self.mesh_chat_text.configure(state="disabled")
+        mesh_tab.rowconfigure(12, weight=1)
+
+        self.mesh_chat_input_var = tk.StringVar(value="")
+        ttk.Entry(mesh_tab, textvariable=self.mesh_chat_input_var).grid(row=13, column=0, sticky="ew", padx=12, pady=(0, 12))
+        ttk.Button(mesh_tab, text="Send", command=self._send_meshtastic_chat).grid(row=13, column=1, sticky="e", padx=12, pady=(0, 12))
+
         # Signal meter (at bottom of all tabs)
         meter_frame = ttk.Frame(controls_card, style="Card.TFrame")
         meter_frame.grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=(8, 0))
@@ -679,6 +893,7 @@ class WaveRiderTkGui:
 
     def _on_close(self) -> None:
         self._save_presets()
+        self.mesh_client.disconnect()
         self.root.destroy()
 
     def _preset_data(self, slot: int) -> dict[str, float | str] | None:
@@ -782,6 +997,67 @@ class WaveRiderTkGui:
         with self.state.lock:
             self.state.sdr.disconnect()
         self.notice_var.set("SDR device disconnected.")
+
+    def _refresh_meshtastic_ports(self) -> None:
+        devices = self.state.detector.detect_devices()
+        ports = [str(device.get("port", "")) for device in devices if device.get("port")]
+        if list(self.mesh_port_combo["values"]) != ports:
+            self.mesh_port_combo["values"] = ports
+        if ports and not self.mesh_connect_var.get():
+            self.mesh_connect_var.set(ports[0])
+        if not ports:
+            self.mesh_connect_var.set("")
+
+    def _connect_meshtastic(self) -> None:
+        port = self.mesh_connect_var.get().strip()
+        ok, msg = self.mesh_client.connect(port)
+        self.mesh_conn_status_var.set(f"Status: {'connected' if ok else 'error'}")
+        self.notice_var.set(msg)
+        if ok:
+            self._append_meshtastic_chat_line(f"[system] Connected on {port or 'auto'}")
+
+    def _disconnect_meshtastic(self) -> None:
+        self.mesh_client.disconnect()
+        self.mesh_conn_status_var.set("Status: not connected")
+        self.notice_var.set("Meshtastic disconnected.")
+        self._append_meshtastic_chat_line("[system] Disconnected")
+
+    def _append_meshtastic_chat_line(self, line: str) -> None:
+        self.mesh_chat_text.configure(state="normal")
+        self.mesh_chat_text.insert("end", line + "\n")
+        self.mesh_chat_text.see("end")
+        self.mesh_chat_text.configure(state="disabled")
+
+    def _send_meshtastic_chat(self) -> None:
+        message = self.mesh_chat_input_var.get().strip()
+        ok, msg = self.mesh_client.send_text(message)
+        if ok:
+            self.mesh_chat_input_var.set("")
+        self.notice_var.set(msg)
+
+    def _update_meshtastic_ui(self, status: dict[str, object]) -> None:
+        _ = status
+        now = time.time()
+        if now - self._last_mesh_refresh >= 1.0:
+            self._last_mesh_refresh = now
+            self._refresh_meshtastic_ports()
+
+        if not self.mesh_client.available():
+            self.mesh_conn_status_var.set("Status: unavailable (install meshtastic)")
+        elif self.mesh_client.connected:
+            self.mesh_conn_status_var.set("Status: connected")
+        else:
+            self.mesh_conn_status_var.set("Status: not connected")
+
+        node_info = self.mesh_client.get_local_node_info()
+        self.mesh_node_var.set(f"Node ID: {node_info.get('node_id', '-')}")
+        self.mesh_short_var.set(f"Short Name: {node_info.get('short_name', '-')}")
+        self.mesh_long_var.set(f"Long Name: {node_info.get('long_name', '-')}")
+        self.mesh_fw_var.set(f"Firmware: {node_info.get('firmware', '-')}")
+        self.mesh_port_var.set(f"Port: {node_info.get('port', '-')}")
+
+        for line in self.mesh_client.pop_pending_messages():
+            self._append_meshtastic_chat_line(line)
 
     def _open_driver_help(self) -> None:
         try:
@@ -1175,6 +1451,7 @@ class WaveRiderTkGui:
 
         self._draw_meter(signal_db)
         self._update_device_drawer(status)
+        self._update_meshtastic_ui(status)
 
         morse_text = status.get("morse_text") or ""
         morse_display = str(morse_text if morse_text else "(none)")
